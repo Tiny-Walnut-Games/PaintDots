@@ -25,13 +25,13 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
         with:
           fetch-depth: 0
           lfs: false
 
       - name: Cache Unity Library
-        uses: actions/cache@v3
+        uses: actions/cache@0c45773b623bea8c8e75f6c82b208c3cf94ea4f9 # v4.0.2
         with:
           path: Library
           key: Library-${{ matrix.targetPlatform }}-${{ matrix.unityVersion }}-${{ hashFiles('Assets/**', 'Packages/**', 'ProjectSettings/**') }}
@@ -41,7 +41,7 @@ jobs:
             Library-
 
       - name: Run Unity Tests
-        uses: game-ci/unity-test-runner@v4
+        uses: game-ci/unity-test-runner@d4e85c0b64a3b93eb4dac1c8194bd7e34dd9aa2f # v4.3.0
         env:
           UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
@@ -54,7 +54,7 @@ jobs:
           checkName: Unity Test Results (${{ matrix.targetPlatform }})
 
       - name: Upload Test Results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@834a144ee995460fba8ed112a2fc961b36a5ec5a # v4.3.6
         if: always()
         with:
           name: Test-Results-${{ matrix.targetPlatform }}-${{ matrix.unityVersion }}
@@ -74,13 +74,13 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
         with:
           fetch-depth: 0
           lfs: false
 
       - name: Cache Unity Library
-        uses: actions/cache@v3
+        uses: actions/cache@0c45773b623bea8c8e75f6c82b208c3cf94ea4f9 # v4.0.2
         with:
           path: Library
           key: Library-${{ matrix.targetPlatform }}-${{ env.UNITY_VERSION }}-${{ hashFiles('Assets/**', 'Packages/**', 'ProjectSettings/**') }}
@@ -90,7 +90,7 @@ jobs:
             Library-
 
       - name: Build Unity Project
-        uses: game-ci/unity-builder@v4
+        uses: game-ci/unity-builder@67456823e3f9b4dd64ab4c51a5a56479a5a4b83a # v4.2.2
         env:
           UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
@@ -103,7 +103,7 @@ jobs:
           githubToken: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload Build Artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@834a144ee995460fba8ed112a2fc961b36a5ec5a # v4.3.6
         with:
           name: Build-${{ matrix.targetPlatform }}
           path: builds

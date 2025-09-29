@@ -29,14 +29,14 @@ jobs:
     
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
         fetch-depth: 0
         lfs: false
 
     - name: Setup Node.js
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4.0.3
       with:
         node-version: '18'
         cache: 'npm'
@@ -59,7 +59,7 @@ jobs:
 
     - name: Create Pull Request
       if: steps.check_updates.outputs.updated != '0' && inputs.dry_run == false
-      uses: peter-evans/create-pull-request@v5
+      uses: peter-evans/create-pull-request@8867c4aba1b742c39f8d0ba35429c2dca4677278 # v5.0.3
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
         commit-message: |
