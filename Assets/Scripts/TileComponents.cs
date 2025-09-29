@@ -138,7 +138,7 @@ namespace PaintDots.ECS
             GridPosition = gridPosition;
             TileID = tileID;
             VariantIndex = variantIndex;
-            Color = color.Equals(default) ? new float4(1, 1, 1, 1) : color;
+            Color = (color.x == 0 && color.y == 0 && color.z == 0 && color.w == 0) ? new float4(1, 1, 1, 1) : color;
             IsAutoTile = isAutoTile;
         }
     }
