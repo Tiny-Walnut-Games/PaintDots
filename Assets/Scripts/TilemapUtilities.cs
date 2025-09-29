@@ -332,8 +332,8 @@ namespace PaintDots.ECS.Utilities
         public static int2 WorldToLocal(int2 gridPosition, int2 chunkSize)
         {
             return new int2(
-                gridPosition.x % chunkSize.x,
-                gridPosition.y % chunkSize.y
+                ((gridPosition.x % chunkSize.x) + chunkSize.x) % chunkSize.x,
+                ((gridPosition.y % chunkSize.y) + chunkSize.y) % chunkSize.y
             );
         }
 
