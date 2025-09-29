@@ -1,5 +1,6 @@
 using Unity.Entities;
 using Unity.Mathematics;
+using PaintDots.ECS.Config;
 
 namespace PaintDots.ECS
 {
@@ -25,6 +26,7 @@ namespace PaintDots.ECS
     {
         public readonly BlobArray<Entity> TileEntities; // References to tile prefabs
         public readonly BlobArray<int> TileIDs; // Corresponding tile IDs
+        public readonly BlobArray<StructureVisual> StructureVisuals; // Multi-tile structure prefabs
     }
 
     /// <summary>
@@ -34,11 +36,27 @@ namespace PaintDots.ECS
     {
         public readonly int2 GridPosition;
         public readonly int TileID;
+        public readonly bool IsMultiTile; // Flag to indicate if this is a multi-tile structure
+        public readonly int2 Size; // Size for multi-tile structures (ignored for single tiles)
 
-        public PaintCommand(int2 gridPosition, int tileID)
+        public PaintCommand(int2 gridPosition, int tileID, bool isMultiTile, int2 size)
         {
             GridPosition = gridPosition;
             TileID = tileID;
+            IsMultiTile = isMultiTile;
+            Size = isMultiTile && size.Equals(new int2(0, 0)) ? new int2(1, 1) : size;
+        }
+
+        // Factory method for single tiles
+        public static PaintCommand SingleTile(int2 gridPosition, int tileID)
+        {
+            return new PaintCommand(gridPosition, tileID, false, new int2(0, 0));
+        }
+
+        // Factory method for multi-tile structures
+        public static PaintCommand MultiTile(int2 gridPosition, int tileID, int2 size)
+        {
+            return new PaintCommand(gridPosition, tileID, true, size);
         }
     }
 

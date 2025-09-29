@@ -9,7 +9,7 @@ namespace PaintDots.ECS.Utilities
     /// <summary>
     /// Static utility class for common tilemap operations
     /// </summary>
-    public static class TilemapUtilities
+    public static sealed class TilemapUtilities
     {
         /// <summary>
         /// Converts world position to grid position
@@ -252,12 +252,17 @@ namespace PaintDots.ECS.Utilities
             NoiseThreshold = noiseThreshold;
             NoiseSeed = noiseSeed;
         }
+
+        public static BrushConfig CreateDefault()
+        {
+            return new BrushConfig(BrushType.Single, 1, 0, false);
+        }
     }
 
     /// <summary>
     /// Brush system for applying different painting patterns
     /// </summary>
-    public static class BrushSystem
+    public static sealed class BrushSystem
     {
         /// <summary>
         /// Apply brush at given position using ECB
