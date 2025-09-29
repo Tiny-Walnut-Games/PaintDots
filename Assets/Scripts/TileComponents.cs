@@ -222,7 +222,7 @@ namespace PaintDots.ECS
         {
             SpriteIndex = spriteIndex;
             Duration = duration;
-            Color = color.Equals(default) ? new float4(1, 1, 1, 1) : color;
+            Color = (color.x == 0f && color.y == 0f && color.z == 0f && color.w == 0f) ? new float4(1, 1, 1, 1) : color;
         }
     }
 
