@@ -1,0 +1,22 @@
+{
+    "name": "PaintDots.Editor",
+    "rootNamespace": "PaintDots.Editor",
+    "references": [
+        "Unity.Entities",
+        "Unity.Entities.Editor",
+        "Unity.Mathematics",
+        "Unity.Collections",
+        "PaintDots.Runtime"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
