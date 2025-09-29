@@ -1,0 +1,33 @@
+version: 2
+updates:
+  # Unity Package Manager dependencies
+  - package-ecosystem: "npm"
+    directory: "/Packages"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "@jmeyer1980"
+    assignees:
+      - "@jmeyer1980"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+
+  # GitHub Actions dependencies
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "@jmeyer1980"
+    assignees:
+      - "@jmeyer1980"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
