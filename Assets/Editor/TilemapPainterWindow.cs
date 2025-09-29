@@ -2,13 +2,14 @@ using Unity.Entities;
 using Unity.Mathematics;
 using UnityEditor;
 using UnityEngine;
+using Unity.Collections;
 
 namespace PaintDots.Editor
 {
     /// <summary>
     /// Editor window for painting tiles in Scene view using ECS
     /// </summary>
-    public class TilemapPainterWindow : EditorWindow
+    public sealed class TilemapPainterWindow : EditorWindow
     {
         private int _selectedTileID = 0;
         private bool _isPainting = false;
@@ -27,7 +28,7 @@ namespace PaintDots.Editor
             
             // Get the default world and entity manager
             _world = World.DefaultGameObjectInjectionWorld;
-            if (_world != null)
+            if (_world != default)
             {
                 _entityManager = _world.EntityManager;
             }
@@ -61,7 +62,7 @@ namespace PaintDots.Editor
             EditorGUILayout.LabelField("• Right-click to erase tiles");
             EditorGUILayout.LabelField("• Hold Shift for multi-tile painting");
             
-            if (_world == null)
+            if (_world == default)
             {
                 EditorGUILayout.Space();
                 EditorGUILayout.HelpBox("No ECS World found. Make sure you have an active scene with ECS enabled.", MessageType.Warning);
@@ -70,7 +71,7 @@ namespace PaintDots.Editor
 
         private void OnSceneGUI(SceneView sceneView)
         {
-            if (!_isPainting || _world == null || _entityManager == null)
+            if (!_isPainting || _world == default || !_entityManager.IsCreated)
                 return;
 
             Event e = Event.current;
@@ -116,27 +117,23 @@ namespace PaintDots.Editor
 
         private void PaintTile(int2 gridPosition, int tileID)
         {
-            if (_entityManager == null) return;
+            if (!_entityManager.IsCreated) return;
             
-            // Create a paint command entity
+            // Create a paint command entity - let the systems handle the actual painting
             Entity paintCommand = _entityManager.CreateEntity();
-            _entityManager.AddComponentData(paintCommand, new PaintDots.ECS.PaintCommand
-            {
-                GridPosition = gridPosition,
-                TileID = tileID
-            });
+            _entityManager.AddComponentData(paintCommand, new PaintDots.ECS.PaintCommand(gridPosition, tileID));
             
             Debug.Log($"Painted tile {tileID} at position {gridPosition}");
         }
 
         private void EraseTile(int2 gridPosition)
         {
-            if (_entityManager == null) return;
+            if (!_entityManager.IsCreated) return;
             
-            // Find and destroy tile at position
-            EntityQuery tileQuery = _entityManager.CreateEntityQuery(typeof(PaintDots.ECS.Tile));
-            var tiles = tileQuery.ToEntityArray(Unity.Collections.Allocator.TempJob);
-            var tileComponents = tileQuery.ToComponentDataArray<PaintDots.ECS.Tile>(Unity.Collections.Allocator.TempJob);
+            // Find and destroy tile at position using query to avoid sync points
+            using var tileQuery = _entityManager.CreateEntityQuery(typeof(PaintDots.ECS.Tile));
+            using var tiles = tileQuery.ToEntityArray(Allocator.TempJob);
+            using var tileComponents = tileQuery.ToComponentDataArray<PaintDots.ECS.Tile>(Allocator.TempJob);
             
             for (int i = 0; i < tiles.Length; i++)
             {
@@ -147,9 +144,6 @@ namespace PaintDots.Editor
                     break;
                 }
             }
-            
-            tiles.Dispose();
-            tileComponents.Dispose();
         }
     }
 
@@ -157,7 +151,7 @@ namespace PaintDots.Editor
     /// Custom inspector for TilemapAuthoring
     /// </summary>
     [CustomEditor(typeof(PaintDots.ECS.Authoring.TilemapAuthoring))]
-    public class TilemapAuthoringInspector : UnityEditor.Editor
+    public sealed class TilemapAuthoringInspector : UnityEditor.Editor
     {
         public override void OnInspectorGUI()
         {

@@ -2,6 +2,7 @@ using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
 using UnityEngine;
+using PaintDots.ECS.Config;
 
 namespace PaintDots.ECS.Authoring
 {
@@ -9,17 +10,22 @@ namespace PaintDots.ECS.Authoring
     /// MonoBehaviour authoring component for creating tilemap entities in the editor
     /// This is only used for authoring and will be converted to pure ECS at runtime
     /// </summary>
-    public class TilemapAuthoring : MonoBehaviour
+    public sealed class TilemapAuthoring : MonoBehaviour
     {
         [Header("Tilemap Settings")]
-        public int2 MapSize = new int2(100, 100);
+        public int2 MapSize = new(100, 100);
         public Material TileMaterial;
         public Mesh TileMesh;
         
         [Header("Tile Palette")]
-        public GameObject[] TilePrefabs;
+        public GameObject[] TilePrefabs = System.Array.Empty<GameObject>();
+
+        [Header("Configuration")]
+        public float TileSize = 1.0f;
+        public int MaxVariants = 16;
+        public Color DefaultTileColor = Color.white;
         
-        class Baker : Baker<TilemapAuthoring>
+        private sealed class Baker : Baker<TilemapAuthoring>
         {
             public override void Bake(TilemapAuthoring authoring)
             {
@@ -28,14 +34,24 @@ namespace PaintDots.ECS.Authoring
                 // Add tilemap tag to the main entity
                 AddComponent<TilemapTag>(entity);
                 
+                // Add configuration components
+                AddComponent(entity, new TilemapConfig(
+                    authoring.TileSize, 
+                    authoring.MaxVariants,
+                    new float4(authoring.DefaultTileColor.r, authoring.DefaultTileColor.g, authoring.DefaultTileColor.b, authoring.DefaultTileColor.a)
+                ));
+                
+                AddComponent(entity, new AutoTileConfig());
+                AddComponent(entity, new RenderConfig());
+                
                 // Bake tile prefabs into entities
-                if (authoring.TilePrefabs != null && authoring.TilePrefabs.Length > 0)
+                if (authoring.TilePrefabs.Length > 0)
                 {
-                    var tileEntities = new NativeArray<Entity>(authoring.TilePrefabs.Length, Allocator.Temp);
+                    using var tileEntities = new NativeArray<Entity>(authoring.TilePrefabs.Length, Allocator.Temp);
                     
                     for (int i = 0; i < authoring.TilePrefabs.Length; i++)
                     {
-                        if (authoring.TilePrefabs[i] != null)
+                        if (authoring.TilePrefabs[i] != default)
                         {
                             tileEntities[i] = GetEntity(authoring.TilePrefabs[i], TransformUsageFlags.Dynamic);
                         }
@@ -43,8 +59,6 @@ namespace PaintDots.ECS.Authoring
                     
                     // Store tile palette data
                     // In a full implementation, this would create a BlobAsset for the palette
-                    
-                    tileEntities.Dispose();
                 }
             }
         }
@@ -53,42 +67,35 @@ namespace PaintDots.ECS.Authoring
     /// <summary>
     /// Authoring component for individual tiles
     /// </summary>
-    public class TileAuthoring : MonoBehaviour
+    public sealed class TileAuthoring : MonoBehaviour
     {
         [Header("Tile Data")]
         public int TileID;
         public int2 GridPosition;
         public bool UseAutoTile = false;
         
-        class Baker : Baker<TileAuthoring>
+        private sealed class Baker : Baker<TileAuthoring>
         {
             public override void Bake(TileAuthoring authoring)
             {
                 var entity = GetEntity(TransformUsageFlags.Dynamic);
                 
-                AddComponent(entity, new Tile
-                {
-                    GridPosition = authoring.GridPosition,
-                    TileID = authoring.TileID
-                });
-                
+                AddComponent(entity, new Tile(authoring.GridPosition, authoring.TileID));
                 AddComponent<TilemapTag>(entity);
                 
                 if (authoring.UseAutoTile)
                 {
-                    AddComponent(entity, new AutoTile
-                    {
-                        AutoTileAssetEntity = Entity.Null,
-                        RuleFlags = 0,
-                        VariantIndex = 0
-                    });
+                    AddComponent(entity, new AutoTile(Entity.Null));
                 }
                 
-                AddComponent(entity, new TileRenderData
-                {
-                    Color = new float4(1, 1, 1, 1),
-                    SpriteIndex = authoring.TileID
-                });
+                // Get config from tilemap entity or use defaults
+                var config = new TilemapConfig();
+                AddComponent(entity, new TileRenderData(
+                    Entity.Null,
+                    Entity.Null,
+                    config.DefaultTileColor,
+                    authoring.TileID
+                ));
             }
         }
     }

@@ -4,6 +4,7 @@ using Unity.Entities;
 using Unity.Mathematics;
 using Unity.Transforms;
 using Unity.Rendering;
+using PaintDots.ECS.Config;
 
 namespace PaintDots.ECS.Systems
 {
@@ -12,10 +13,11 @@ namespace PaintDots.ECS.Systems
     /// </summary>
     [BurstCompile]
     [UpdateInGroup(typeof(SimulationSystemGroup))]
-    public partial struct TilemapPainterSystem : ISystem
+    public sealed partial struct TilemapPainterSystem : ISystem
     {
         private EntityQuery _paintCommandQuery;
         private EntityQuery _existingTileQuery;
+        private EntityQuery _configQuery;
 
         [BurstCompile]
         public void OnCreate(ref SystemState state)
@@ -27,6 +29,10 @@ namespace PaintDots.ECS.Systems
             _existingTileQuery = SystemAPI.QueryBuilder()
                 .WithAll<Tile, TilemapTag>()
                 .Build();
+
+            _configQuery = SystemAPI.QueryBuilder()
+                .WithAll<TilemapConfig>()
+                .Build();
                 
             state.RequireForUpdate(_paintCommandQuery);
         }
@@ -34,66 +40,86 @@ namespace PaintDots.ECS.Systems
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {
-            var ecb = new EntityCommandBuffer(Allocator.Temp);
+            var ecb = SystemAPI.GetSingleton<BeginSimulationEntityCommandBufferSystem.Singleton>()
+                .CreateCommandBuffer(state.WorldUnmanaged);
+            
+            // Get configuration
+            var config = SystemAPI.HasSingleton<TilemapConfig>() 
+                ? SystemAPI.GetSingleton<TilemapConfig>() 
+                : new TilemapConfig();
             
             // Process paint commands
-            foreach (var (command, commandEntity) in 
-                SystemAPI.Query<RefRO<PaintCommand>>().WithEntityAccess())
+            var job = new PaintCommandJob
             {
-                var gridPos = command.ValueRO.GridPosition;
-                var tileID = command.ValueRO.TileID;
-                
-                // Check if tile already exists at this position
-                var existingTile = FindTileAtPosition(gridPos, state.EntityManager);
-                
-                if (existingTile != Entity.Null)
-                {
-                    // Update existing tile
-                    var tileComponent = state.EntityManager.GetComponentData<Tile>(existingTile);
-                    tileComponent.TileID = tileID;
-                    state.EntityManager.SetComponentData(existingTile, tileComponent);
-                }
-                else
-                {
-                    // Create new tile entity
-                    var newTile = ecb.CreateEntity();
-                    ecb.AddComponent(newTile, new Tile 
-                    { 
-                        GridPosition = gridPos, 
-                        TileID = tileID 
-                    });
-                    ecb.AddComponent<TilemapTag>(newTile);
-                    ecb.AddComponent(newTile, LocalTransform.FromPosition(
-                        new float3(gridPos.x, gridPos.y, 0)));
-                    
-                    // Add rendering components (will be handled by rendering system)
-                    ecb.AddComponent(newTile, new TileRenderData
-                    {
-                        Color = new float4(1, 1, 1, 1),
-                        SpriteIndex = tileID
-                    });
-                }
-                
-                // Remove the paint command
-                ecb.DestroyEntity(commandEntity);
-            }
+                ECB = ecb.AsParallelWriter(),
+                Config = config,
+                ExistingTiles = _existingTileQuery.ToComponentDataArray<Tile>(Allocator.TempJob)
+            };
             
-            ecb.Playback(state.EntityManager);
-            ecb.Dispose();
-        }
-
-        private Entity FindTileAtPosition(int2 position, EntityManager entityManager)
-        {
-            foreach (var (tile, entity) in 
-                SystemAPI.Query<RefRO<Tile>>().WithEntityAccess())
-            {
-                if (tile.ValueRO.GridPosition.Equals(position))
-                    return entity;
-            }
-            return Entity.Null;
+            state.Dependency = job.ScheduleParallel(_paintCommandQuery, state.Dependency);
+            job.ExistingTiles.Dispose(state.Dependency);
         }
 
         public void OnDestroy(ref SystemState state) { }
+
+        [BurstCompile]
+        private struct PaintCommandJob : IJobChunk
+        {
+            public EntityCommandBuffer.ParallelWriter ECB;
+            public TilemapConfig Config;
+            [ReadOnly] public NativeArray<Tile> ExistingTiles;
+            
+            public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in v128 chunkEnabledMask)
+            {
+                var commands = chunk.GetNativeArray(SystemAPI.GetComponentTypeHandle<PaintCommand>(true));
+                var entities = chunk.GetNativeArray(SystemAPI.GetEntityTypeHandle());
+                
+                var enumerator = new ChunkEntityEnumerator(useEnabledMask, chunkEnabledMask, chunk.Count);
+                
+                while (enumerator.NextEntityIndex(out var i))
+                {
+                    var command = commands[i];
+                    var commandEntity = entities[i];
+                    
+                    var existingTileIndex = FindTileAtPosition(command.GridPosition, ExistingTiles);
+                    
+                    if (existingTileIndex >= 0)
+                    {
+                        // Update existing tile - this would require a different approach in pure ECS
+                        // For now, we'll create a new tile and mark the old one for destruction
+                        ECB.DestroyEntity(unfilteredChunkIndex, ExistingTiles[existingTileIndex].GridPosition.GetHashCode()); // Using a proxy entity
+                    }
+                    
+                    // Create new tile entity
+                    var newTile = ECB.CreateEntity(unfilteredChunkIndex);
+                    ECB.AddComponent(unfilteredChunkIndex, newTile, new Tile(command.GridPosition, command.TileID));
+                    ECB.AddComponent<TilemapTag>(unfilteredChunkIndex, newTile);
+                    ECB.AddComponent(unfilteredChunkIndex, newTile, LocalTransform.FromPosition(
+                        new float3(command.GridPosition.x * Config.TileSize, command.GridPosition.y * Config.TileSize, 0)));
+                    
+                    // Add rendering components
+                    ECB.AddComponent(unfilteredChunkIndex, newTile, new TileRenderData(
+                        default,
+                        default,
+                        Config.DefaultTileColor,
+                        command.TileID
+                    ));
+                    
+                    // Remove the paint command
+                    ECB.DestroyEntity(unfilteredChunkIndex, commandEntity);
+                }
+            }
+            
+            private int FindTileAtPosition(int2 position, NativeArray<Tile> tiles)
+            {
+                for (int i = 0; i < tiles.Length; i++)
+                {
+                    if (tiles[i].GridPosition.Equals(position))
+                        return i;
+                }
+                return -1;
+            }
+        }
     }
 
     /// <summary>
@@ -102,89 +128,138 @@ namespace PaintDots.ECS.Systems
     [BurstCompile]
     [UpdateInGroup(typeof(SimulationSystemGroup))]
     [UpdateAfter(typeof(TilemapPainterSystem))]
-    public partial struct AutoTileSystem : ISystem
+    public sealed partial struct AutoTileSystem : ISystem
     {
+        private EntityQuery _autoTileQuery;
+        private EntityQuery _allTilesQuery;
+
         [BurstCompile]
         public void OnCreate(ref SystemState state)
         {
-            // System will update when there are tiles with AutoTile components
+            _autoTileQuery = SystemAPI.QueryBuilder()
+                .WithAll<Tile, AutoTile, TileRenderData>()
+                .Build();
+                
+            _allTilesQuery = SystemAPI.QueryBuilder()
+                .WithAll<Tile>()
+                .Build();
         }
 
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {
-            // Process AutoTile rules for tiles that have been modified
-            foreach (var (tile, autoTile, renderData, entity) in 
-                SystemAPI.Query<RefRO<Tile>, RefRW<AutoTile>, RefRW<TileRenderData>>().WithEntityAccess())
-            {
-                var neighbors = CalculateNeighbors(tile.ValueRO.GridPosition, state.EntityManager);
-                var newFlags = CalculateAutoTileFlags(neighbors);
-                
-                if (autoTile.ValueRO.RuleFlags != newFlags)
-                {
-                    autoTile.ValueRW.RuleFlags = newFlags;
-                    var variantIndex = GetVariantIndexFromFlags(newFlags);
-                    autoTile.ValueRW.VariantIndex = variantIndex;
-                    renderData.ValueRW.SpriteIndex = variantIndex;
-                }
-            }
-        }
-
-        private byte CalculateNeighbors(int2 position, EntityManager entityManager)
-        {
-            byte neighbors = 0;
+            if (_autoTileQuery.IsEmpty) return;
             
-            // Check 8 surrounding positions (3x3 grid minus center)
-            for (int x = -1; x <= 1; x++)
+            var ecb = SystemAPI.GetSingleton<BeginSimulationEntityCommandBufferSystem.Singleton>()
+                .CreateCommandBuffer(state.WorldUnmanaged);
+                
+            var config = SystemAPI.HasSingleton<AutoTileConfig>()
+                ? SystemAPI.GetSingleton<AutoTileConfig>()
+                : new AutoTileConfig();
+
+            var allTiles = _allTilesQuery.ToComponentDataArray<Tile>(Allocator.TempJob);
+            
+            var job = new AutoTileJob
             {
-                for (int y = -1; y <= 1; y++)
-                {
-                    if (x == 0 && y == 0) continue; // Skip center
-                    
-                    var checkPos = position + new int2(x, y);
-                    if (HasTileAtPosition(checkPos, entityManager))
-                    {
-                        var bitIndex = (y + 1) * 3 + (x + 1);
-                        if (bitIndex > 4) bitIndex--; // Skip center position in bit calculation
-                        neighbors |= (byte)(1 << bitIndex);
-                    }
-                }
-            }
-            return neighbors;
-        }
-
-        private bool HasTileAtPosition(int2 position, EntityManager entityManager)
-        {
-            foreach (var tile in SystemAPI.Query<RefRO<Tile>>())
-            {
-                if (tile.ValueRO.GridPosition.Equals(position))
-                    return true;
-            }
-            return false;
-        }
-
-        private byte CalculateAutoTileFlags(byte neighbors)
-        {
-            // Convert neighbor information to AutoTile rule flags
-            // This follows Unity's AutoTile pattern matching logic
-            return neighbors;
-        }
-
-        private int GetVariantIndexFromFlags(byte flags)
-        {
-            // Map rule flags to sprite variant index
-            // This would use the AutoTile asset's rule definitions in production
-            return flags % 16; // Simplified mapping for now
+                ECB = ecb.AsParallelWriter(),
+                Config = config,
+                AllTiles = allTiles
+            };
+            
+            state.Dependency = job.ScheduleParallel(_autoTileQuery, state.Dependency);
+            allTiles.Dispose(state.Dependency);
         }
 
         public void OnDestroy(ref SystemState state) { }
+
+        [BurstCompile]
+        private struct AutoTileJob : IJobChunk
+        {
+            public EntityCommandBuffer.ParallelWriter ECB;
+            public AutoTileConfig Config;
+            [ReadOnly] public NativeArray<Tile> AllTiles;
+            
+            public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in v128 chunkEnabledMask)
+            {
+                var tiles = chunk.GetNativeArray(SystemAPI.GetComponentTypeHandle<Tile>(true));
+                var autoTiles = chunk.GetNativeArray(SystemAPI.GetComponentTypeHandle<AutoTile>(true));
+                var renderData = chunk.GetNativeArray(SystemAPI.GetComponentTypeHandle<TileRenderData>(true));
+                var entities = chunk.GetNativeArray(SystemAPI.GetEntityTypeHandle());
+                
+                var enumerator = new ChunkEntityEnumerator(useEnabledMask, chunkEnabledMask, chunk.Count);
+                
+                while (enumerator.NextEntityIndex(out var i))
+                {
+                    var tile = tiles[i];
+                    var autoTile = autoTiles[i];
+                    var render = renderData[i];
+                    var entity = entities[i];
+                    
+                    var neighbors = CalculateNeighbors(tile.GridPosition, AllTiles);
+                    var newFlags = CalculateAutoTileFlags(neighbors);
+                    
+                    if (autoTile.RuleFlags != newFlags)
+                    {
+                        var variantIndex = GetVariantIndexFromFlags(newFlags, Config);
+                        var newAutoTile = autoTile.WithRuleFlags(newFlags).WithVariantIndex(variantIndex);
+                        var newRenderData = render.WithSpriteIndex(variantIndex);
+                        
+                        ECB.SetComponent(unfilteredChunkIndex, entity, newAutoTile);
+                        ECB.SetComponent(unfilteredChunkIndex, entity, newRenderData);
+                    }
+                }
+            }
+            
+            private byte CalculateNeighbors(int2 position, NativeArray<Tile> allTiles)
+            {
+                byte neighbors = 0;
+                
+                // Check 8 surrounding positions (3x3 grid minus center)
+                for (int x = -1; x <= 1; x++)
+                {
+                    for (int y = -1; y <= 1; y++)
+                    {
+                        if (x == 0 && y == 0) continue; // Skip center
+                        
+                        var checkPos = position + new int2(x, y);
+                        if (HasTileAtPosition(checkPos, allTiles))
+                        {
+                            var bitIndex = (y + 1) * 3 + (x + 1);
+                            if (bitIndex > 4) bitIndex--; // Skip center position in bit calculation
+                            neighbors |= (byte)(1 << bitIndex);
+                        }
+                    }
+                }
+                return neighbors;
+            }
+
+            private bool HasTileAtPosition(int2 position, NativeArray<Tile> tiles)
+            {
+                for (int i = 0; i < tiles.Length; i++)
+                {
+                    if (tiles[i].GridPosition.Equals(position))
+                        return true;
+                }
+                return false;
+            }
+
+            private byte CalculateAutoTileFlags(byte neighbors)
+            {
+                return neighbors;
+            }
+
+            private int GetVariantIndexFromFlags(byte flags, AutoTileConfig config)
+            {
+                return flags % config.RulesetSize;
+            }
+        }
     }
 
     /// <summary>
     /// System for rendering tile entities using Unity's Entities Graphics
     /// </summary>
     [UpdateInGroup(typeof(PresentationSystemGroup))]
-    public partial struct TileRenderingSystem : ISystem
+    public sealed partial struct TileRenderingSystem : ISystem
     {
         public void OnCreate(ref SystemState state)
         {
@@ -193,11 +268,15 @@ namespace PaintDots.ECS.Systems
 
         public void OnUpdate(ref SystemState state)
         {
+            var config = SystemAPI.HasSingleton<TilemapConfig>() 
+                ? SystemAPI.GetSingleton<TilemapConfig>() 
+                : new TilemapConfig();
+            
             // Update transforms based on grid positions
             foreach (var (tile, transform) in 
-                SystemAPI.Query<RefRO<Tile>, RefRW<LocalTransform>>().WithAll<TilemapTag>())
+                SystemAPI.Query<Tile, RefRW<LocalTransform>>().WithAll<TilemapTag>())
             {
-                var worldPos = new float3(tile.ValueRO.GridPosition.x, tile.ValueRO.GridPosition.y, 0);
+                var worldPos = new float3(tile.GridPosition.x * config.TileSize, tile.GridPosition.y * config.TileSize, 0);
                 transform.ValueRW.Position = worldPos;
             }
         }
