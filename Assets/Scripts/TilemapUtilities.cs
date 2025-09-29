@@ -101,6 +101,93 @@ namespace PaintDots.ECS.Utilities
                 }
             }
         }
+
+        /// <summary>
+        /// Creates noise-based paint commands using Perlin noise
+        /// </summary>
+        public static void PaintNoise(EntityCommandBuffer ecb, int2 center, int radius, int tileID, float threshold, uint seed)
+        {
+            var random = Unity.Mathematics.Random.CreateFromIndex(seed);
+            
+            for (int x = center.x - radius; x <= center.x + radius; x++)
+            {
+                for (int y = center.y - radius; y <= center.y + radius; y++)
+                {
+                    var pos = new int2(x, y);
+                    var distance = math.distance(new float2(center.x, center.y), new float2(x, y));
+                    
+                    if (distance <= radius)
+                    {
+                        // Use noise to determine if tile should be placed
+                        var noiseValue = noise.cnoise(new float2(x * 0.1f, y * 0.1f) + random.NextFloat2());
+                        
+                        if (noiseValue > threshold)
+                        {
+                            CreatePaintCommand(ecb, pos, tileID);
+                        }
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Creates sparse random noise pattern
+        /// </summary>
+        public static void PaintNoiseSparse(EntityCommandBuffer ecb, int2 center, int radius, int tileID, uint seed)
+        {
+            PaintNoise(ecb, center, radius, tileID, 0.7f, seed); // Higher threshold = sparser
+        }
+
+        /// <summary>
+        /// Creates dense random noise pattern
+        /// </summary>
+        public static void PaintNoiseDense(EntityCommandBuffer ecb, int2 center, int radius, int tileID, uint seed)
+        {
+            PaintNoise(ecb, center, radius, tileID, 0.2f, seed); // Lower threshold = denser
+        }
+
+        /// <summary>
+        /// Creates an erase command for a specific position
+        /// </summary>
+        public static void CreateEraseCommand(EntityCommandBuffer ecb, int2 gridPos)
+        {
+            var entity = ecb.CreateEntity();
+            ecb.AddComponent(entity, new EraseCommand(gridPos));
+        }
+
+        /// <summary>
+        /// Creates multiple erase commands for a rectangular area
+        /// </summary>
+        public static void EraseRectangle(EntityCommandBuffer ecb, int2 min, int2 max)
+        {
+            for (int x = min.x; x <= max.x; x++)
+            {
+                for (int y = min.y; y <= max.y; y++)
+                {
+                    CreateEraseCommand(ecb, new int2(x, y));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Creates erase commands for a circular area
+        /// </summary>
+        public static void EraseCircle(EntityCommandBuffer ecb, int2 center, int radius)
+        {
+            for (int x = center.x - radius; x <= center.x + radius; x++)
+            {
+                for (int y = center.y - radius; y <= center.y + radius; y++)
+                {
+                    var pos = new int2(x, y);
+                    var distance = math.distance(new float2(center.x, center.y), new float2(x, y));
+                    
+                    if (distance <= radius)
+                    {
+                        CreateEraseCommand(ecb, pos);
+                    }
+                }
+            }
+        }
     }
 
     /// <summary>
@@ -136,7 +223,11 @@ namespace PaintDots.ECS.Utilities
         Square5x5,
         Circle,
         Line,
-        Fill
+        Fill,
+        RectangleFill,
+        NoisePattern,
+        NoiseSparse,
+        NoiseDense
     }
 
     /// <summary>
@@ -149,13 +240,17 @@ namespace PaintDots.ECS.Utilities
         public readonly int Size;
         public readonly int TileID;
         public readonly bool UseAutoTile;
+        public readonly float NoiseThreshold;
+        public readonly uint NoiseSeed;
 
-        public BrushConfig(BrushType type, int size, int tileID, bool useAutoTile = false)
+        public BrushConfig(BrushType type, int size, int tileID, bool useAutoTile = false, float noiseThreshold = 0.5f, uint noiseSeed = 12345)
         {
             Type = type;
             Size = size;
             TileID = tileID;
             UseAutoTile = useAutoTile;
+            NoiseThreshold = noiseThreshold;
+            NoiseSeed = noiseSeed;
         }
     }
 
@@ -186,6 +281,24 @@ namespace PaintDots.ECS.Utilities
                 case BrushType.Circle:
                     TilemapUtilities.PaintCircle(ecb, position, brush.Size, brush.TileID);
                     break;
+
+                case BrushType.RectangleFill:
+                    var min = position - new int2(brush.Size / 2, brush.Size / 2);
+                    var max = position + new int2(brush.Size / 2, brush.Size / 2);
+                    TilemapUtilities.PaintRectangle(ecb, min, max, brush.TileID);
+                    break;
+
+                case BrushType.NoisePattern:
+                    TilemapUtilities.PaintNoise(ecb, position, brush.Size, brush.TileID, brush.NoiseThreshold, brush.NoiseSeed);
+                    break;
+
+                case BrushType.NoiseSparse:
+                    TilemapUtilities.PaintNoiseSparse(ecb, position, brush.Size, brush.TileID, brush.NoiseSeed);
+                    break;
+
+                case BrushType.NoiseDense:
+                    TilemapUtilities.PaintNoiseDense(ecb, position, brush.Size, brush.TileID, brush.NoiseSeed);
+                    break;
             }
         }
 
@@ -194,6 +307,92 @@ namespace PaintDots.ECS.Utilities
             var min = center - new int2(radius, radius);
             var max = center + new int2(radius, radius);
             TilemapUtilities.PaintRectangle(ecb, min, max, tileID);
+        }
+    }
+
+    /// <summary>
+    /// Utility class for managing chunked tilemaps
+    /// </summary>
+    public static class ChunkUtilities
+    {
+        /// <summary>
+        /// Converts world grid position to chunk coordinates
+        /// </summary>
+        public static int2 WorldToChunk(int2 gridPosition, int2 chunkSize)
+        {
+            return new int2(
+                gridPosition.x / chunkSize.x,
+                gridPosition.y / chunkSize.y
+            );
+        }
+
+        /// <summary>
+        /// Converts world grid position to local position within chunk
+        /// </summary>
+        public static int2 WorldToLocal(int2 gridPosition, int2 chunkSize)
+        {
+            return new int2(
+                gridPosition.x % chunkSize.x,
+                gridPosition.y % chunkSize.y
+            );
+        }
+
+        /// <summary>
+        /// Converts chunk coordinates and local position to world grid position
+        /// </summary>
+        public static int2 ChunkToWorld(int2 chunkCoords, int2 localPos, int2 chunkSize)
+        {
+            return chunkCoords * chunkSize + localPos;
+        }
+
+        /// <summary>
+        /// Creates or gets a chunk entity for the given chunk coordinates
+        /// </summary>
+        public static Entity GetOrCreateChunk(EntityCommandBuffer ecb, int2 chunkCoords, int2 chunkSize)
+        {
+            // In a full implementation, this would check for existing chunks first
+            var chunkEntity = ecb.CreateEntity();
+            ecb.AddComponent(chunkEntity, new TilemapChunk(chunkCoords, chunkSize));
+            ecb.AddComponent<TilemapTag>(chunkEntity);
+            ecb.AddBuffer<ChunkTile>(chunkEntity);
+            
+            // Set chunk world position
+            var worldPos = new float3(
+                chunkCoords.x * chunkSize.x,
+                chunkCoords.y * chunkSize.y,
+                0
+            );
+            ecb.AddComponent(chunkEntity, new LocalTransform
+            {
+                Position = worldPos,
+                Rotation = quaternion.identity,
+                Scale = 1f
+            });
+
+            return chunkEntity;
+        }
+
+        /// <summary>
+        /// Creates a tile in the appropriate chunk
+        /// </summary>
+        public static Entity CreateChunkedTile(EntityCommandBuffer ecb, int2 gridPos, int tileID, int2 chunkSize)
+        {
+            var chunkCoords = WorldToChunk(gridPos, chunkSize);
+            var localPos = WorldToLocal(gridPos, chunkSize);
+            
+            var chunkEntity = GetOrCreateChunk(ecb, chunkCoords, chunkSize);
+            
+            var tileEntity = ecb.CreateEntity();
+            ecb.AddComponent(tileEntity, new Tile(gridPos, tileID));
+            ecb.AddComponent<TilemapTag>(tileEntity);
+            ecb.AddComponent(tileEntity, new TileChunkReference(chunkEntity, localPos));
+            
+            // Add tile to chunk buffer
+            var chunkTile = new ChunkTile(tileEntity, localPos);
+            // Note: In practice, you'd need to get the buffer and append to it
+            // This would require a different approach or deferred execution
+            
+            return tileEntity;
         }
     }
 }

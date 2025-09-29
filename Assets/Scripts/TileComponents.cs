@@ -43,6 +43,19 @@ namespace PaintDots.ECS
     }
 
     /// <summary>
+    /// Transient component to request erasing
+    /// </summary>
+    public readonly struct EraseCommand : IComponentData
+    {
+        public readonly int2 GridPosition;
+
+        public EraseCommand(int2 gridPosition)
+        {
+            GridPosition = gridPosition;
+        }
+    }
+
+    /// <summary>
     /// Component for AutoTile integration with Unity's 2D Tilemap Extras
     /// </summary>
     public readonly struct AutoTile : IComponentData
@@ -95,6 +108,180 @@ namespace PaintDots.ECS
         public TileRenderData WithSpriteIndex(int newSpriteIndex)
         {
             return new TileRenderData(MaterialEntity, MeshEntity, Color, newSpriteIndex);
+        }
+    }
+
+    /// <summary>
+    /// Serializable tilemap state stored as BlobAsset for saving/loading
+    /// </summary>
+    public readonly struct TilemapStateAsset
+    {
+        public readonly BlobArray<SerializedTile> Tiles;
+        public readonly BlobArray<SerializedTilemap> Tilemaps;
+        public readonly float TileSize;
+        public readonly int Version;
+    }
+
+    /// <summary>
+    /// Serialized tile data for BlobAsset storage
+    /// </summary>
+    public readonly struct SerializedTile
+    {
+        public readonly int2 GridPosition;
+        public readonly int TileID;
+        public readonly int VariantIndex;
+        public readonly float4 Color;
+        public readonly bool IsAutoTile;
+
+        public SerializedTile(int2 gridPosition, int tileID, int variantIndex = 0, float4 color = default, bool isAutoTile = false)
+        {
+            GridPosition = gridPosition;
+            TileID = tileID;
+            VariantIndex = variantIndex;
+            Color = color.Equals(default) ? new float4(1, 1, 1, 1) : color;
+            IsAutoTile = isAutoTile;
+        }
+    }
+
+    /// <summary>
+    /// Serialized tilemap metadata
+    /// </summary>
+    public readonly struct SerializedTilemap
+    {
+        public readonly int2 ChunkSize;
+        public readonly int2 MinBounds;
+        public readonly int2 MaxBounds;
+        public readonly int TileCount;
+
+        public SerializedTilemap(int2 chunkSize, int2 minBounds, int2 maxBounds, int tileCount)
+        {
+            ChunkSize = chunkSize;
+            MinBounds = minBounds;
+            MaxBounds = maxBounds;
+            TileCount = tileCount;
+        }
+    }
+
+    /// <summary>
+    /// Component to store a reference to tilemap state BlobAsset
+    /// </summary>
+    public readonly struct TilemapStateComponent : IComponentData
+    {
+        public readonly BlobAssetReference<TilemapStateAsset> StateAsset;
+
+        public TilemapStateComponent(BlobAssetReference<TilemapStateAsset> stateAsset)
+        {
+            StateAsset = stateAsset;
+        }
+    }
+
+    /// <summary>
+    /// Component for animated tiles
+    /// </summary>
+    public readonly struct AnimatedTile : IComponentData
+    {
+        public readonly BlobAssetReference<AnimatedTileData> AnimationData;
+        public readonly float CurrentTime;
+        public readonly int CurrentFrame;
+        public readonly bool IsPlaying;
+
+        public AnimatedTile(BlobAssetReference<AnimatedTileData> animationData, float currentTime = 0f, int currentFrame = 0, bool isPlaying = true)
+        {
+            AnimationData = animationData;
+            CurrentTime = currentTime;
+            CurrentFrame = currentFrame;
+            IsPlaying = isPlaying;
+        }
+
+        public AnimatedTile WithTime(float time, int frame)
+        {
+            return new AnimatedTile(AnimationData, time, frame, IsPlaying);
+        }
+    }
+
+    /// <summary>
+    /// BlobAsset containing animation frame data
+    /// </summary>
+    public readonly struct AnimatedTileData
+    {
+        public readonly BlobArray<AnimationFrame> Frames;
+        public readonly float TotalDuration;
+        public readonly bool Loop;
+    }
+
+    /// <summary>
+    /// Individual animation frame data
+    /// </summary>
+    public readonly struct AnimationFrame
+    {
+        public readonly int SpriteIndex;
+        public readonly float Duration;
+        public readonly float4 Color;
+
+        public AnimationFrame(int spriteIndex, float duration, float4 color = default)
+        {
+            SpriteIndex = spriteIndex;
+            Duration = duration;
+            Color = color.Equals(default) ? new float4(1, 1, 1, 1) : color;
+        }
+    }
+
+    /// <summary>
+    /// Component representing a tilemap chunk for large world support
+    /// </summary>
+    public readonly struct TilemapChunk : IComponentData
+    {
+        public readonly int2 ChunkCoordinates;
+        public readonly int2 ChunkSize;
+        public readonly int TileCount;
+        public readonly bool IsActive;
+
+        public TilemapChunk(int2 chunkCoordinates, int2 chunkSize, int tileCount = 0, bool isActive = true)
+        {
+            ChunkCoordinates = chunkCoordinates;
+            ChunkSize = chunkSize;
+            TileCount = tileCount;
+            IsActive = isActive;
+        }
+
+        public TilemapChunk WithTileCount(int newTileCount)
+        {
+            return new TilemapChunk(ChunkCoordinates, ChunkSize, newTileCount, IsActive);
+        }
+
+        public TilemapChunk WithActiveState(bool active)
+        {
+            return new TilemapChunk(ChunkCoordinates, ChunkSize, TileCount, active);
+        }
+    }
+
+    /// <summary>
+    /// Buffer element for storing tile references within a chunk
+    /// </summary>
+    public readonly struct ChunkTile : IBufferElementData
+    {
+        public readonly Entity TileEntity;
+        public readonly int2 LocalPosition; // Position within chunk
+        
+        public ChunkTile(Entity tileEntity, int2 localPosition)
+        {
+            TileEntity = tileEntity;
+            LocalPosition = localPosition;
+        }
+    }
+
+    /// <summary>
+    /// Component linking tiles to their parent chunk
+    /// </summary>
+    public readonly struct TileChunkReference : IComponentData
+    {
+        public readonly Entity ChunkEntity;
+        public readonly int2 LocalPosition;
+
+        public TileChunkReference(Entity chunkEntity, int2 localPosition)
+        {
+            ChunkEntity = chunkEntity;
+            LocalPosition = localPosition;
         }
     }
 }
