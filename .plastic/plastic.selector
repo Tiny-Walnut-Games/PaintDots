@@ -1,0 +1,4 @@
+repository "PaintDots/PaintDots@2475351465828@cloud"
+  path "/"
+    br "/main"
+    co "/main"
