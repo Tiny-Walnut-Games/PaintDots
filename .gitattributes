@@ -1,0 +1,7 @@
+# Disable Git LFS for all files in this repository
+* -filter=lfs -diff=lfs -merge=lfs
+* text=auto
+
+# Explicitly disable LFS for common file types
+*.* -filter=lfs
+**/* -filter=lfs
