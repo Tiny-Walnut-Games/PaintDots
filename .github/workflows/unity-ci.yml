@@ -9,6 +9,11 @@ on:
 env:
   UNITY_VERSION: 2022.3.48f1
 
+permissions:
+  contents: read
+  actions: read
+  checks: write
+
 jobs:
   test:
     name: Test in Unity ${{ matrix.unityVersion }} on ${{ matrix.targetPlatform }}
@@ -51,13 +56,12 @@ jobs:
           testMode: all
           artifactsPath: test-results
           githubToken: ${{ secrets.GITHUB_TOKEN }}
-          checkName: Unity Test Results (${{ matrix.targetPlatform }})
 
       - name: Upload Test Results
         uses: actions/upload-artifact@834a144ee995460fba8ed112a2fc961b36a5ec5a # v4.3.6
         if: always()
         with:
-          name: Test-Results-${{ matrix.targetPlatform }}-${{ matrix.unityVersion }}
+          name: test-results-${{ matrix.targetPlatform }}-${{ matrix.unityVersion }}
           path: test-results
 
   build:
@@ -100,10 +104,9 @@ jobs:
           targetPlatform: ${{ matrix.targetPlatform }}
           buildName: PaintDots
           buildsPath: builds
-          githubToken: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@834a144ee995460fba8ed112a2fc961b36a5ec5a # v4.3.6
         with:
-          name: Build-${{ matrix.targetPlatform }}
+          name: build-${{ matrix.targetPlatform }}
           path: builds
