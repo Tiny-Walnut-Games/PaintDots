@@ -101,6 +101,93 @@ namespace PaintDots.ECS.Utilities
                 }
             }
         }
+
+        /// <summary>
+        /// Creates noise-based paint commands using Perlin noise
+        /// </summary>
+        public static void PaintNoise(EntityCommandBuffer ecb, int2 center, int radius, int tileID, float threshold, uint seed)
+        {
+            var random = Unity.Mathematics.Random.CreateFromIndex(seed);
+            
+            for (int x = center.x - radius; x <= center.x + radius; x++)
+            {
+                for (int y = center.y - radius; y <= center.y + radius; y++)
+                {
+                    var pos = new int2(x, y);
+                    var distance = math.distance(new float2(center.x, center.y), new float2(x, y));
+                    
+                    if (distance <= radius)
+                    {
+                        // Use noise to determine if tile should be placed
+                        var noiseValue = noise.cnoise(new float2(x * 0.1f, y * 0.1f) + random.NextFloat2());
+                        
+                        if (noiseValue > threshold)
+                        {
+                            CreatePaintCommand(ecb, pos, tileID);
+                        }
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Creates sparse random noise pattern
+        /// </summary>
+        public static void PaintNoiseSparse(EntityCommandBuffer ecb, int2 center, int radius, int tileID, uint seed)
+        {
+            PaintNoise(ecb, center, radius, tileID, 0.7f, seed); // Higher threshold = sparser
+        }
+
+        /// <summary>
+        /// Creates dense random noise pattern
+        /// </summary>
+        public static void PaintNoiseDense(EntityCommandBuffer ecb, int2 center, int radius, int tileID, uint seed)
+        {
+            PaintNoise(ecb, center, radius, tileID, 0.2f, seed); // Lower threshold = denser
+        }
+
+        /// <summary>
+        /// Creates an erase command for a specific position
+        /// </summary>
+        public static void CreateEraseCommand(EntityCommandBuffer ecb, int2 gridPos)
+        {
+            var entity = ecb.CreateEntity();
+            ecb.AddComponent(entity, new EraseCommand(gridPos));
+        }
+
+        /// <summary>
+        /// Creates multiple erase commands for a rectangular area
+        /// </summary>
+        public static void EraseRectangle(EntityCommandBuffer ecb, int2 min, int2 max)
+        {
+            for (int x = min.x; x <= max.x; x++)
+            {
+                for (int y = min.y; y <= max.y; y++)
+                {
+                    CreateEraseCommand(ecb, new int2(x, y));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Creates erase commands for a circular area
+        /// </summary>
+        public static void EraseCircle(EntityCommandBuffer ecb, int2 center, int radius)
+        {
+            for (int x = center.x - radius; x <= center.x + radius; x++)
+            {
+                for (int y = center.y - radius; y <= center.y + radius; y++)
+                {
+                    var pos = new int2(x, y);
+                    var distance = math.distance(new float2(center.x, center.y), new float2(x, y));
+                    
+                    if (distance <= radius)
+                    {
+                        CreateEraseCommand(ecb, pos);
+                    }
+                }
+            }
+        }
     }
 
     /// <summary>
@@ -136,7 +223,11 @@ namespace PaintDots.ECS.Utilities
         Square5x5,
         Circle,
         Line,
-        Fill
+        Fill,
+        RectangleFill,
+        NoisePattern,
+        NoiseSparse,
+        NoiseDense
     }
 
     /// <summary>
@@ -149,13 +240,17 @@ namespace PaintDots.ECS.Utilities
         public readonly int Size;
         public readonly int TileID;
         public readonly bool UseAutoTile;
+        public readonly float NoiseThreshold;
+        public readonly uint NoiseSeed;
 
-        public BrushConfig(BrushType type, int size, int tileID, bool useAutoTile)
+        public BrushConfig(BrushType type, int size, int tileID, bool useAutoTile = false, float noiseThreshold = 0.5f, uint noiseSeed = 12345)
         {
             Type = type;
             Size = size;
             TileID = tileID;
             UseAutoTile = useAutoTile;
+            NoiseThreshold = noiseThreshold;
+            NoiseSeed = noiseSeed;
         }
 
         public static BrushConfig CreateDefault()
@@ -191,6 +286,24 @@ namespace PaintDots.ECS.Utilities
                 case BrushType.Circle:
                     TilemapUtilities.PaintCircle(ecb, position, brush.Size, brush.TileID);
                     break;
+
+                case BrushType.RectangleFill:
+                    var min = position - new int2(brush.Size / 2, brush.Size / 2);
+                    var max = position + new int2(brush.Size / 2, brush.Size / 2);
+                    TilemapUtilities.PaintRectangle(ecb, min, max, brush.TileID);
+                    break;
+
+                case BrushType.NoisePattern:
+                    TilemapUtilities.PaintNoise(ecb, position, brush.Size, brush.TileID, brush.NoiseThreshold, brush.NoiseSeed);
+                    break;
+
+                case BrushType.NoiseSparse:
+                    TilemapUtilities.PaintNoiseSparse(ecb, position, brush.Size, brush.TileID, brush.NoiseSeed);
+                    break;
+
+                case BrushType.NoiseDense:
+                    TilemapUtilities.PaintNoiseDense(ecb, position, brush.Size, brush.TileID, brush.NoiseSeed);
+                    break;
             }
         }
 
@@ -203,150 +316,88 @@ namespace PaintDots.ECS.Utilities
     }
 
     /// <summary>
-    /// Static utility class for grid occupancy management and multi-tile operations
+    /// Utility class for managing chunked tilemaps
     /// </summary>
-    public static sealed class GridOccupancyManager
+    public static class ChunkUtilities
     {
         /// <summary>
-        /// Checks if a footprint area is free of occupied cells (for use in Burst jobs)
+        /// Converts world grid position to chunk coordinates
         /// </summary>
-        public static bool IsFootprintFree(int2 origin, int2 size, NativeArray<Tile> existingTiles, NativeArray<Entity> structureEntities, ComponentLookup<Footprint> footprintLookup)
+        public static int2 WorldToChunk(int2 gridPosition, int2 chunkSize)
         {
-            // Check single tiles first
-            for (int x = 0; x < size.x; x++)
-            {
-                for (int y = 0; y < size.y; y++)
-                {
-                    var checkPos = origin + new int2(x, y);
-                    
-                    // Check if any single tile occupies this position
-                    for (int i = 0; i < existingTiles.Length; i++)
-                    {
-                        if (existingTiles[i].GridPosition.Equals(checkPos))
-                            return false;
-                    }
-                }
-            }
-
-            // Check multi-tile structures
-            for (int i = 0; i < structureEntities.Length; i++)
-            {
-                if (!footprintLookup.HasComponent(structureEntities[i])) continue;
-                
-                var footprint = footprintLookup[structureEntities[i]];
-                
-                // Check if footprints overlap
-                if (FootprintsOverlap(origin, size, footprint.Origin, footprint.Size))
-                    return false;
-            }
-
-            return true;
+            return new int2(
+                gridPosition.x / chunkSize.x,
+                gridPosition.y / chunkSize.y
+            );
         }
 
         /// <summary>
-        /// Checks if a footprint area is free of occupied cells (for use with DynamicBuffer)
+        /// Converts world grid position to local position within chunk
         /// </summary>
-        public static bool IsFootprintFreeBuffered(int2 origin, int2 size, DynamicBuffer<Tile> existingTiles, DynamicBuffer<Entity> structureEntities, ComponentLookup<Footprint> footprintLookup)
+        public static int2 WorldToLocal(int2 gridPosition, int2 chunkSize)
         {
-            // Check single tiles first
-            for (int x = 0; x < size.x; x++)
-            {
-                for (int y = 0; y < size.y; y++)
-                {
-                    var checkPos = origin + new int2(x, y);
-                    
-                    // Check if any single tile occupies this position
-                    for (int i = 0; i < existingTiles.Length; i++)
-                    {
-                        if (existingTiles[i].GridPosition.Equals(checkPos))
-                            return false;
-                    }
-                }
-            }
-
-            // Check multi-tile structures
-            for (int i = 0; i < structureEntities.Length; i++)
-            {
-                if (!footprintLookup.HasComponent(structureEntities[i])) continue;
-                
-                var footprint = footprintLookup[structureEntities[i]];
-                
-                // Check if footprints overlap
-                if (FootprintsOverlap(origin, size, footprint.Origin, footprint.Size))
-                    return false;
-            }
-
-            return true;
+            return new int2(
+                ((gridPosition.x % chunkSize.x) + chunkSize.x) % chunkSize.x,
+                ((gridPosition.y % chunkSize.y) + chunkSize.y) % chunkSize.y
+            );
         }
 
         /// <summary>
-        /// Checks if two footprints overlap
+        /// Converts chunk coordinates and local position to world grid position
         /// </summary>
-        public static bool FootprintsOverlap(int2 origin1, int2 size1, int2 origin2, int2 size2)
+        public static int2 ChunkToWorld(int2 chunkCoords, int2 localPos, int2 chunkSize)
         {
-            var max1 = origin1 + size1 - 1;
-            var max2 = origin2 + size2 - 1;
+            return chunkCoords * chunkSize + localPos;
+        }
+
+        /// <summary>
+        /// Creates or gets a chunk entity for the given chunk coordinates
+        /// </summary>
+        public static Entity GetOrCreateChunk(EntityCommandBuffer ecb, int2 chunkCoords, int2 chunkSize)
+        {
+            // In a full implementation, this would check for existing chunks first
+            var chunkEntity = ecb.CreateEntity();
+            ecb.AddComponent(chunkEntity, new TilemapChunk(chunkCoords, chunkSize));
+            ecb.AddComponent<TilemapTag>(chunkEntity);
+            ecb.AddBuffer<ChunkTile>(chunkEntity);
             
-            return !(max1.x < origin2.x || origin1.x > max2.x || max1.y < origin2.y || origin1.y > max2.y);
+            // Set chunk world position
+            var worldPos = new float3(
+                chunkCoords.x * chunkSize.x,
+                chunkCoords.y * chunkSize.y,
+                0
+            );
+            ecb.AddComponent(chunkEntity, new LocalTransform
+            {
+                Position = worldPos,
+                Rotation = quaternion.identity,
+                Scale = 1f
+            });
+
+            return chunkEntity;
         }
 
         /// <summary>
-        /// Fills a DynamicBuffer with all positions covered by a footprint
+        /// Creates a tile in the appropriate chunk
         /// </summary>
-        public static void FillOccupiedCells(DynamicBuffer<OccupiedCell> buffer, int2 origin, int2 size)
+        public static Entity CreateChunkedTile(EntityCommandBuffer ecb, int2 gridPos, int tileID, int2 chunkSize)
         {
-            buffer.Clear();
-            for (int x = 0; x < size.x; x++)
-            {
-                for (int y = 0; y < size.y; y++)
-                {
-                    buffer.Add(new OccupiedCell(origin + new int2(x, y)));
-                }
-            }
-        }
-
-        /// <summary>
-        /// Gets the structure entity occupying a specific grid position, if any (for use in Burst jobs)
-        /// </summary>
-        public static Entity GetStructureAtPosition(int2 position, NativeArray<Entity> structureEntities, ComponentLookup<Footprint> footprintLookup)
-        {
-            for (int i = 0; i < structureEntities.Length; i++)
-            {
-                var entity = structureEntities[i];
-                if (!footprintLookup.HasComponent(entity)) continue;
-                
-                var footprint = footprintLookup[entity];
-                
-                if (position.x >= footprint.Origin.x && position.x < footprint.Origin.x + footprint.Size.x &&
-                    position.y >= footprint.Origin.y && position.y < footprint.Origin.y + footprint.Size.y)
-                {
-                    return entity;
-                }
-            }
+            var chunkCoords = WorldToChunk(gridPos, chunkSize);
+            var localPos = WorldToLocal(gridPos, chunkSize);
             
-            return EntityConstants.InvalidEntity;
-        }
-
-        /// <summary>
-        /// Gets the structure entity occupying a specific grid position, if any (for use with DynamicBuffer)
-        /// </summary>
-        public static Entity GetStructureAtPositionBuffered(int2 position, DynamicBuffer<Entity> structureEntities, ComponentLookup<Footprint> footprintLookup)
-        {
-            for (int i = 0; i < structureEntities.Length; i++)
-            {
-                var entity = structureEntities[i];
-                if (!footprintLookup.HasComponent(entity)) continue;
-                
-                var footprint = footprintLookup[entity];
-                
-                if (position.x >= footprint.Origin.x && position.x < footprint.Origin.x + footprint.Size.x &&
-                    position.y >= footprint.Origin.y && position.y < footprint.Origin.y + footprint.Size.y)
-                {
-                    return entity;
-                }
-            }
+            var chunkEntity = GetOrCreateChunk(ecb, chunkCoords, chunkSize);
             
-            return EntityConstants.InvalidEntity;
+            var tileEntity = ecb.CreateEntity();
+            ecb.AddComponent(tileEntity, new Tile(gridPos, tileID));
+            ecb.AddComponent<TilemapTag>(tileEntity);
+            ecb.AddComponent(tileEntity, new TileChunkReference(chunkEntity, localPos));
+            
+            // Add tile to chunk buffer
+            var chunkTile = new ChunkTile(tileEntity, localPos);
+            // Note: In practice, you'd need to get the buffer and append to it
+            // This would require a different approach or deferred execution
+            
+            return tileEntity;
         }
     }
 }

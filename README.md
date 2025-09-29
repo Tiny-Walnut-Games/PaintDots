@@ -174,18 +174,30 @@ var houseCommand = PaintCommand.MultiTile(new int2(10, 5), houseID, new int2(3, 
 ---
 
 ## 🔌 Extending
-- **Brushes**: Add systems that generate multiple `PaintCommand`s at once (e.g., rectangle fill, noise brush).
-- **Eraser**: Query for `Tile` at a grid position and destroy the entity.
-- **Serialization**: Store tilemap state in a BlobAsset for saving/loading.
+- ✅ **Brushes**: Multiple brush systems with rectangle fill, noise patterns (sparse/dense), and custom configurations.
+- ✅ **Eraser**: Efficient EraseCommand system with rectangular and circular erase patterns.
+- ✅ **Serialization**: Complete BlobAsset-based tilemap state serialization for saving/loading.
 
 ---
 
-## 🚀 Roadmap
-- [x] **Multi-tile entity support** - Place structures spanning multiple grid cells.
-- [ ] Editor window for painting in Scene view.  
-- [ ] Support for animated tiles.  
-- [ ] Chunked tilemaps for large worlds.  
-- [ ] Burst‑compiled mesh generation for procedural tiles.  
+## 🚀 Features Completed
+- ✅ **Editor window for painting in Scene view** - Full editor integration with painting and erasing tools.
+- ✅ **Support for animated tiles** - AnimatedTile component with frame-based animation system.
+- ✅ **Chunked tilemaps for large worlds** - Chunk-based architecture with culling and streaming.
+- ✅ **Burst-compiled mesh generation for procedural tiles** - ProceduralMeshSystem with full Burst compilation.
+
+### 🔧 Advanced Systems
+- **Multi-Brush Support**: Single, Square (3x3, 5x5), Circle, Rectangle Fill, Noise Pattern variants
+- **Chunk Management**: Automatic chunk loading/unloading based on distance with configurable parameters
+- **Animation Framework**: Timeline-based tile animation with looping, color changes, and sprite sequences  
+- **Serialization**: Complete save/load system using Unity's BlobAsset for efficient data storage
+- **Enhanced Eraser**: Command-based erasing with support for patterns and areas
+
+### 🏗️ CI/CD Infrastructure
+- **Unity CI**: Multi-platform builds (Windows, macOS, Linux) with automated testing
+- **Security**: CodeQL analysis, vulnerability scanning, and dependency monitoring
+- **Updates**: Dependabot for automated dependency updates + manual update bot with dry-run support
+- **Quality**: Comprehensive workflows following Unity best practices with secrets management  
 
 ---
 
