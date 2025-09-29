@@ -2,6 +2,7 @@ using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
 using PaintDots.ECS;
+using PaintDots.ECS.Config;
 using PaintDots.ECS.Utilities;
 
 namespace PaintDots.ECS.Validation
@@ -9,7 +10,7 @@ namespace PaintDots.ECS.Validation
     /// <summary>
     /// Validation utilities for multi-tile functionality
     /// </summary>
-    public static class MultiTileValidation
+    public static sealed class MultiTileValidation
     {
         /// <summary>
         /// Validates that footprint overlap detection works correctly
@@ -45,18 +46,23 @@ namespace PaintDots.ECS.Validation
         /// </summary>
         public static bool ValidatePaintCommandFactory()
         {
+            var config = StructureConfig.CreateDefault();
+            var testPosition1 = new int2(5, 5);
+            var testPosition2 = new int2(10, 10);
+            
             // Test single tile command
-            var singleTile = PaintCommand.SingleTile(new int2(5, 5), 10);
+            var singleTile = PaintCommand.SingleTile(testPosition1, config.PathID);
             if (singleTile.IsMultiTile) return false;
-            if (!singleTile.GridPosition.Equals(new int2(5, 5))) return false;
-            if (singleTile.TileID != 10) return false;
+            if (!singleTile.GridPosition.Equals(testPosition1)) return false;
+            if (singleTile.TileID != config.PathID) return false;
 
             // Test multi-tile command
-            var multiTile = PaintCommand.MultiTile(new int2(10, 10), 20, new int2(3, 2));
+            var testSize = new int2(3, 2);
+            var multiTile = PaintCommand.MultiTile(testPosition2, config.HouseID, testSize);
             if (!multiTile.IsMultiTile) return false;
-            if (!multiTile.GridPosition.Equals(new int2(10, 10))) return false;
-            if (multiTile.TileID != 20) return false;
-            if (!multiTile.Size.Equals(new int2(3, 2))) return false;
+            if (!multiTile.GridPosition.Equals(testPosition2)) return false;
+            if (multiTile.TileID != config.HouseID) return false;
+            if (!multiTile.Size.Equals(testSize)) return false;
 
             return true;
         }
@@ -95,11 +101,12 @@ namespace PaintDots.ECS.Validation
         /// </summary>
         public static bool ValidateStructureVisual()
         {
-            var mockEntity = new Entity { Index = 123, Version = 1 };
-            var structureVisual = new StructureVisual(mockEntity, new int2(4, 3));
+            var testEntity = new Entity { Index = 123, Version = 1 };
+            var testSize = new int2(4, 3);
+            var structureVisual = new StructureVisual(testEntity, testSize);
             
-            if (structureVisual.Prefab.Index != 123) return false;
-            if (!structureVisual.Size.Equals(new int2(4, 3))) return false;
+            if (structureVisual.Prefab.Index != testEntity.Index) return false;
+            if (!structureVisual.Size.Equals(testSize)) return false;
             
             return true;
         }
@@ -121,17 +128,17 @@ namespace PaintDots.ECS.Validation
     /// System that runs validation tests on startup in debug builds
     /// </summary>
     [UpdateInGroup(typeof(InitializationSystemGroup))]
-    public partial class ValidationTestSystem : SystemBase
+    public sealed partial struct ValidationTestSystem : ISystem
     {
-        private bool _validationRun = false;
+        private bool _validationRun;
 
-        protected override void OnCreate()
+        public void OnCreate(ref SystemState state)
         {
-            base.OnCreate();
-            Enabled = UnityEngine.Debug.isDebugBuild;
+            _validationRun = false;
+            state.Enabled = UnityEngine.Debug.isDebugBuild;
         }
 
-        protected override void OnUpdate()
+        public void OnUpdate(ref SystemState state)
         {
             if (_validationRun) return;
             
@@ -148,5 +155,7 @@ namespace PaintDots.ECS.Validation
             
             _validationRun = true;
         }
+
+        public void OnDestroy(ref SystemState state) { }
     }
 }

@@ -9,7 +9,7 @@ namespace PaintDots.ECS.Utilities
     /// <summary>
     /// Static utility class for common tilemap operations
     /// </summary>
-    public static class TilemapUtilities
+    public static sealed class TilemapUtilities
     {
         /// <summary>
         /// Converts world position to grid position
@@ -150,19 +150,24 @@ namespace PaintDots.ECS.Utilities
         public readonly int TileID;
         public readonly bool UseAutoTile;
 
-        public BrushConfig(BrushType type, int size, int tileID, bool useAutoTile = false)
+        public BrushConfig(BrushType type, int size, int tileID, bool useAutoTile)
         {
             Type = type;
             Size = size;
             TileID = tileID;
             UseAutoTile = useAutoTile;
         }
+
+        public static BrushConfig CreateDefault()
+        {
+            return new BrushConfig(BrushType.Single, 1, 0, false);
+        }
     }
 
     /// <summary>
     /// Brush system for applying different painting patterns
     /// </summary>
-    public static class BrushSystem
+    public static sealed class BrushSystem
     {
         /// <summary>
         /// Apply brush at given position using ECB
@@ -200,12 +205,48 @@ namespace PaintDots.ECS.Utilities
     /// <summary>
     /// Static utility class for grid occupancy management and multi-tile operations
     /// </summary>
-    public static class GridOccupancyManager
+    public static sealed class GridOccupancyManager
     {
         /// <summary>
-        /// Checks if a footprint area is free of occupied cells
+        /// Checks if a footprint area is free of occupied cells (for use in Burst jobs)
         /// </summary>
         public static bool IsFootprintFree(int2 origin, int2 size, NativeArray<Tile> existingTiles, NativeArray<Entity> structureEntities, ComponentLookup<Footprint> footprintLookup)
+        {
+            // Check single tiles first
+            for (int x = 0; x < size.x; x++)
+            {
+                for (int y = 0; y < size.y; y++)
+                {
+                    var checkPos = origin + new int2(x, y);
+                    
+                    // Check if any single tile occupies this position
+                    for (int i = 0; i < existingTiles.Length; i++)
+                    {
+                        if (existingTiles[i].GridPosition.Equals(checkPos))
+                            return false;
+                    }
+                }
+            }
+
+            // Check multi-tile structures
+            for (int i = 0; i < structureEntities.Length; i++)
+            {
+                if (!footprintLookup.HasComponent(structureEntities[i])) continue;
+                
+                var footprint = footprintLookup[structureEntities[i]];
+                
+                // Check if footprints overlap
+                if (FootprintsOverlap(origin, size, footprint.Origin, footprint.Size))
+                    return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Checks if a footprint area is free of occupied cells (for use with DynamicBuffer)
+        /// </summary>
+        public static bool IsFootprintFreeBuffered(int2 origin, int2 size, DynamicBuffer<Tile> existingTiles, DynamicBuffer<Entity> structureEntities, ComponentLookup<Footprint> footprintLookup)
         {
             // Check single tiles first
             for (int x = 0; x < size.x; x++)
@@ -265,7 +306,7 @@ namespace PaintDots.ECS.Utilities
         }
 
         /// <summary>
-        /// Gets the structure entity occupying a specific grid position, if any
+        /// Gets the structure entity occupying a specific grid position, if any (for use in Burst jobs)
         /// </summary>
         public static Entity GetStructureAtPosition(int2 position, NativeArray<Entity> structureEntities, ComponentLookup<Footprint> footprintLookup)
         {
@@ -283,7 +324,29 @@ namespace PaintDots.ECS.Utilities
                 }
             }
             
-            return Entity.Null;
+            return EntityConstants.InvalidEntity;
+        }
+
+        /// <summary>
+        /// Gets the structure entity occupying a specific grid position, if any (for use with DynamicBuffer)
+        /// </summary>
+        public static Entity GetStructureAtPositionBuffered(int2 position, DynamicBuffer<Entity> structureEntities, ComponentLookup<Footprint> footprintLookup)
+        {
+            for (int i = 0; i < structureEntities.Length; i++)
+            {
+                var entity = structureEntities[i];
+                if (!footprintLookup.HasComponent(entity)) continue;
+                
+                var footprint = footprintLookup[entity];
+                
+                if (position.x >= footprint.Origin.x && position.x < footprint.Origin.x + footprint.Size.x &&
+                    position.y >= footprint.Origin.y && position.y < footprint.Origin.y + footprint.Size.y)
+                {
+                    return entity;
+                }
+            }
+            
+            return EntityConstants.InvalidEntity;
         }
     }
 }

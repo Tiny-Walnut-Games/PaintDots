@@ -1,6 +1,7 @@
 using Unity.Entities;
 using Unity.Mathematics;
 using PaintDots.ECS;
+using PaintDots.ECS.Config;
 using PaintDots.ECS.Utilities;
 
 namespace PaintDots.ECS.Examples
@@ -8,90 +9,104 @@ namespace PaintDots.ECS.Examples
     /// <summary>
     /// Example usage patterns for multi-tile entity placement
     /// </summary>
-    public static class MultiTileExamples
+    public static sealed class MultiTileExamples
     {
         /// <summary>
-        /// Example: Create a house structure spanning 3x2 tiles
+        /// Example: Create a house structure spanning 3x2 tiles using ECB
         /// </summary>
-        public static Entity CreateHousePaintCommand(EntityManager entityManager, int2 position)
+        public static void CreateHousePaintCommand(EntityCommandBuffer.ParallelWriter ecb, int unfilteredChunkIndex, int2 position, StructureConfig config)
         {
-            const int houseID = 100;
-            var command = PaintCommand.MultiTile(position, houseID, new int2(3, 2));
+            var command = PaintCommand.MultiTile(position, config.HouseID, new int2(3, 2));
             
-            var entity = entityManager.CreateEntity();
-            entityManager.AddComponentData(entity, command);
-            
-            return entity;
+            var entity = ecb.CreateEntity(unfilteredChunkIndex);
+            ecb.AddComponent(unfilteredChunkIndex, entity, command);
         }
 
         /// <summary>
-        /// Example: Create a large tree structure spanning 2x2 tiles  
+        /// Example: Create a large tree structure spanning 2x2 tiles using ECB
         /// </summary>
-        public static Entity CreateTreePaintCommand(EntityManager entityManager, int2 position)
+        public static void CreateTreePaintCommand(EntityCommandBuffer.ParallelWriter ecb, int unfilteredChunkIndex, int2 position, StructureConfig config)
         {
-            const int treeID = 101;
-            var command = PaintCommand.MultiTile(position, treeID, new int2(2, 2));
+            var command = PaintCommand.MultiTile(position, config.TreeID, new int2(2, 2));
             
-            var entity = entityManager.CreateEntity();
-            entityManager.AddComponentData(entity, command);
-            
-            return entity;
+            var entity = ecb.CreateEntity(unfilteredChunkIndex);
+            ecb.AddComponent(unfilteredChunkIndex, entity, command);
         }
 
         /// <summary>
-        /// Example: Create a bridge structure spanning 5x1 tiles
+        /// Example: Create a bridge structure spanning 5x1 tiles using ECB
         /// </summary>
-        public static Entity CreateBridgePaintCommand(EntityManager entityManager, int2 position)
+        public static void CreateBridgePaintCommand(EntityCommandBuffer.ParallelWriter ecb, int unfilteredChunkIndex, int2 position, StructureConfig config)
         {
-            const int bridgeID = 102;
-            var command = PaintCommand.MultiTile(position, bridgeID, new int2(5, 1));
+            var command = PaintCommand.MultiTile(position, config.BridgeID, new int2(5, 1));
             
-            var entity = entityManager.CreateEntity();
-            entityManager.AddComponentData(entity, command);
-            
-            return entity;
+            var entity = ecb.CreateEntity(unfilteredChunkIndex);
+            ecb.AddComponent(unfilteredChunkIndex, entity, command);
         }
 
         /// <summary>
-        /// Example: Batch creation of structures for level generation
+        /// Example: Create a path tile using ECB
         /// </summary>
-        public static void CreateExampleLevel(EntityManager entityManager)
+        public static void CreatePathPaintCommand(EntityCommandBuffer.ParallelWriter ecb, int unfilteredChunkIndex, int2 position, StructureConfig config)
+        {
+            var command = PaintCommand.SingleTile(position, config.PathID);
+            
+            var entity = ecb.CreateEntity(unfilteredChunkIndex);
+            ecb.AddComponent(unfilteredChunkIndex, entity, command);
+        }
+
+        /// <summary>
+        /// Example: Batch creation of structures for level generation using ECB
+        /// </summary>
+        public static void CreateExampleLevel(EntityCommandBuffer.ParallelWriter ecb, int unfilteredChunkIndex, StructureConfig config)
         {
             // Place houses in a residential area
-            CreateHousePaintCommand(entityManager, new int2(10, 10));
-            CreateHousePaintCommand(entityManager, new int2(14, 10));
-            CreateHousePaintCommand(entityManager, new int2(18, 10));
+            CreateHousePaintCommand(ecb, unfilteredChunkIndex, new int2(10, 10), config);
+            CreateHousePaintCommand(ecb, unfilteredChunkIndex, new int2(14, 10), config);
+            CreateHousePaintCommand(ecb, unfilteredChunkIndex, new int2(18, 10), config);
             
             // Add trees between houses
-            CreateTreePaintCommand(entityManager, new int2(12, 8));
-            CreateTreePaintCommand(entityManager, new int2(16, 8));
+            CreateTreePaintCommand(ecb, unfilteredChunkIndex, new int2(12, 8), config);
+            CreateTreePaintCommand(ecb, unfilteredChunkIndex, new int2(16, 8), config);
             
             // Connect with a bridge
-            CreateBridgePaintCommand(entityManager, new int2(10, 6));
+            CreateBridgePaintCommand(ecb, unfilteredChunkIndex, new int2(10, 6), config);
             
             // Add single tiles for paths (mixing single and multi-tile placement)
-            var pathTile = PaintCommand.SingleTile(new int2(9, 9), 50);
-            var pathEntity = entityManager.CreateEntity();
-            entityManager.AddComponentData(pathEntity, pathTile);
+            CreatePathPaintCommand(ecb, unfilteredChunkIndex, new int2(9, 9), config);
         }
     }
 
     /// <summary>
-    /// Example system that demonstrates procedural multi-tile placement
+    /// Example system that demonstrates procedural multi-tile placement using ECB
     /// </summary>
     [UpdateInGroup(typeof(InitializationSystemGroup))]
-    public partial class ExampleLevelGeneratorSystem : SystemBase
+    public sealed partial struct ExampleLevelGeneratorSystem : ISystem
     {
-        private bool _levelGenerated = false;
+        private bool _levelGenerated;
 
-        protected override void OnUpdate()
+        public void OnCreate(ref SystemState state)
+        {
+            _levelGenerated = false;
+        }
+
+        public void OnUpdate(ref SystemState state)
         {
             if (_levelGenerated) return;
             
-            // Generate example level once on startup
-            MultiTileExamples.CreateExampleLevel(EntityManager);
+            var ecb = SystemAPI.GetSingleton<BeginInitializationEntityCommandBufferSystem.Singleton>()
+                .CreateCommandBuffer(state.WorldUnmanaged);
+                
+            var config = SystemAPI.HasSingleton<StructureConfig>() 
+                ? SystemAPI.GetSingleton<StructureConfig>() 
+                : StructureConfig.CreateDefault();
+            
+            // Generate example level once on startup using ECB
+            MultiTileExamples.CreateExampleLevel(ecb.AsParallelWriter(), 0, config);
             _levelGenerated = true;
         }
+
+        public void OnDestroy(ref SystemState state) { }
     }
 
     /// <summary>

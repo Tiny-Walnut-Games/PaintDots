@@ -52,7 +52,7 @@ namespace PaintDots.ECS.Systems
             // Get configuration
             var config = SystemAPI.HasSingleton<TilemapConfig>() 
                 ? SystemAPI.GetSingleton<TilemapConfig>() 
-                : new TilemapConfig();
+                : TilemapConfig.CreateDefault();
             
             // Process paint commands
             var job = new PaintCommandJob
@@ -123,8 +123,8 @@ namespace PaintDots.ECS.Systems
                 
                 // Add rendering components
                 ECB.AddComponent(unfilteredChunkIndex, newTile, new TileRenderData(
-                    default,
-                    default,
+                    EntityConstants.InvalidEntity,
+                    EntityConstants.InvalidEntity,
                     Config.DefaultTileColor,
                     command.TileID
                 ));
@@ -154,8 +154,8 @@ namespace PaintDots.ECS.Systems
                 
                 // Add rendering components
                 ECB.AddComponent(unfilteredChunkIndex, structureEntity, new TileRenderData(
-                    default,
-                    default,
+                    EntityConstants.InvalidEntity,
+                    EntityConstants.InvalidEntity,
                     Config.DefaultTileColor,
                     command.TileID
                 ));
@@ -219,7 +219,7 @@ namespace PaintDots.ECS.Systems
                 
             var config = SystemAPI.HasSingleton<AutoTileConfig>()
                 ? SystemAPI.GetSingleton<AutoTileConfig>()
-                : new AutoTileConfig();
+                : AutoTileConfig.CreateDefault();
 
             var allTiles = _allTilesQuery.ToComponentDataArray<Tile>(Allocator.TempJob);
             
@@ -334,7 +334,7 @@ namespace PaintDots.ECS.Systems
         {
             var config = SystemAPI.HasSingleton<TilemapConfig>() 
                 ? SystemAPI.GetSingleton<TilemapConfig>() 
-                : new TilemapConfig();
+                : TilemapConfig.CreateDefault();
             
             // Update transforms based on grid positions
             foreach (var (tile, transform) in 
