@@ -5,6 +5,7 @@ using Unity.Mathematics;
 using Unity.Transforms;
 using Unity.Rendering;
 using PaintDots.ECS.Config;
+using PaintDots.ECS.Utilities;
 
 namespace PaintDots.ECS.Systems
 {
@@ -18,6 +19,7 @@ namespace PaintDots.ECS.Systems
         private EntityQuery _paintCommandQuery;
         private EntityQuery _existingTileQuery;
         private EntityQuery _configQuery;
+        private EntityQuery _structureQuery;
 
         [BurstCompile]
         public void OnCreate(ref SystemState state)
@@ -32,6 +34,10 @@ namespace PaintDots.ECS.Systems
 
             _configQuery = SystemAPI.QueryBuilder()
                 .WithAll<TilemapConfig>()
+                .Build();
+
+            _structureQuery = SystemAPI.QueryBuilder()
+                .WithAll<Footprint>()
                 .Build();
                 
             state.RequireForUpdate(_paintCommandQuery);
@@ -53,11 +59,14 @@ namespace PaintDots.ECS.Systems
             {
                 ECB = ecb.AsParallelWriter(),
                 Config = config,
-                ExistingTiles = _existingTileQuery.ToComponentDataArray<Tile>(Allocator.TempJob)
+                ExistingTiles = _existingTileQuery.ToComponentDataArray<Tile>(Allocator.TempJob),
+                StructureEntities = _structureQuery.ToEntityArray(Allocator.TempJob),
+                FootprintLookup = SystemAPI.GetComponentLookup<Footprint>(true)
             };
             
             state.Dependency = job.ScheduleParallel(_paintCommandQuery, state.Dependency);
             job.ExistingTiles.Dispose(state.Dependency);
+            job.StructureEntities.Dispose(state.Dependency);
         }
 
         public void OnDestroy(ref SystemState state) { }
@@ -68,6 +77,8 @@ namespace PaintDots.ECS.Systems
             public EntityCommandBuffer.ParallelWriter ECB;
             public TilemapConfig Config;
             [ReadOnly] public NativeArray<Tile> ExistingTiles;
+            [ReadOnly] public NativeArray<Entity> StructureEntities;
+            [ReadOnly] public ComponentLookup<Footprint> FootprintLookup;
             
             public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in v128 chunkEnabledMask)
             {
@@ -81,33 +92,86 @@ namespace PaintDots.ECS.Systems
                     var command = commands[i];
                     var commandEntity = entities[i];
                     
-                    var existingTileIndex = FindTileAtPosition(command.GridPosition, ExistingTiles);
-                    
-                    if (existingTileIndex >= 0)
+                    if (command.IsMultiTile)
                     {
-                        // Update existing tile - this would require a different approach in pure ECS
-                        // For now, we'll create a new tile and mark the old one for destruction
-                        ECB.DestroyEntity(unfilteredChunkIndex, ExistingTiles[existingTileIndex].GridPosition.GetHashCode()); // Using a proxy entity
+                        ProcessMultiTileCommand(command, commandEntity, unfilteredChunkIndex);
                     }
-                    
-                    // Create new tile entity
-                    var newTile = ECB.CreateEntity(unfilteredChunkIndex);
-                    ECB.AddComponent(unfilteredChunkIndex, newTile, new Tile(command.GridPosition, command.TileID));
-                    ECB.AddComponent<TilemapTag>(unfilteredChunkIndex, newTile);
-                    ECB.AddComponent(unfilteredChunkIndex, newTile, LocalTransform.FromPosition(
-                        new float3(command.GridPosition.x * Config.TileSize, command.GridPosition.y * Config.TileSize, 0)));
-                    
-                    // Add rendering components
-                    ECB.AddComponent(unfilteredChunkIndex, newTile, new TileRenderData(
-                        default,
-                        default,
-                        Config.DefaultTileColor,
-                        command.TileID
-                    ));
-                    
-                    // Remove the paint command
-                    ECB.DestroyEntity(unfilteredChunkIndex, commandEntity);
+                    else
+                    {
+                        ProcessSingleTileCommand(command, commandEntity, unfilteredChunkIndex);
+                    }
                 }
+            }
+
+            private void ProcessSingleTileCommand(PaintCommand command, Entity commandEntity, int unfilteredChunkIndex)
+            {
+                var existingTileIndex = FindTileAtPosition(command.GridPosition, ExistingTiles);
+                
+                if (existingTileIndex >= 0)
+                {
+                    // Update existing tile - this would require a different approach in pure ECS
+                    // For now, we'll create a new tile and mark the old one for destruction
+                    ECB.DestroyEntity(unfilteredChunkIndex, ExistingTiles[existingTileIndex].GridPosition.GetHashCode()); // Using a proxy entity
+                }
+                
+                // Create new tile entity
+                var newTile = ECB.CreateEntity(unfilteredChunkIndex);
+                ECB.AddComponent(unfilteredChunkIndex, newTile, new Tile(command.GridPosition, command.TileID));
+                ECB.AddComponent<TilemapTag>(unfilteredChunkIndex, newTile);
+                ECB.AddComponent(unfilteredChunkIndex, newTile, LocalTransform.FromPosition(
+                    new float3(command.GridPosition.x * Config.TileSize, command.GridPosition.y * Config.TileSize, 0)));
+                
+                // Add rendering components
+                ECB.AddComponent(unfilteredChunkIndex, newTile, new TileRenderData(
+                    default,
+                    default,
+                    Config.DefaultTileColor,
+                    command.TileID
+                ));
+                
+                // Remove the paint command
+                ECB.DestroyEntity(unfilteredChunkIndex, commandEntity);
+            }
+
+            private void ProcessMultiTileCommand(PaintCommand command, Entity commandEntity, int unfilteredChunkIndex)
+            {
+                // Check if the footprint area is free
+                if (!GridOccupancyManager.IsFootprintFree(command.GridPosition, command.Size, ExistingTiles, StructureEntities, FootprintLookup))
+                {
+                    // Area is occupied, remove command without creating entity
+                    ECB.DestroyEntity(unfilteredChunkIndex, commandEntity);
+                    return;
+                }
+
+                // Create structure entity with footprint
+                var structureEntity = ECB.CreateEntity(unfilteredChunkIndex);
+                ECB.AddComponent(unfilteredChunkIndex, structureEntity, new Footprint(command.GridPosition, command.Size));
+                ECB.AddComponent<TilemapTag>(unfilteredChunkIndex, structureEntity);
+                
+                // Position at the origin
+                ECB.AddComponent(unfilteredChunkIndex, structureEntity, LocalTransform.FromPosition(
+                    new float3(command.GridPosition.x * Config.TileSize, command.GridPosition.y * Config.TileSize, 0)));
+                
+                // Add rendering components
+                ECB.AddComponent(unfilteredChunkIndex, structureEntity, new TileRenderData(
+                    default,
+                    default,
+                    Config.DefaultTileColor,
+                    command.TileID
+                ));
+
+                // Add buffer for occupied cells and fill it
+                var buffer = ECB.AddBuffer<OccupiedCell>(unfilteredChunkIndex, structureEntity);
+                for (int x = 0; x < command.Size.x; x++)
+                {
+                    for (int y = 0; y < command.Size.y; y++)
+                    {
+                        buffer.Add(new OccupiedCell(command.GridPosition + new int2(x, y)));
+                    }
+                }
+                
+                // Remove the paint command
+                ECB.DestroyEntity(unfilteredChunkIndex, commandEntity);
             }
             
             private int FindTileAtPosition(int2 position, NativeArray<Tile> tiles)

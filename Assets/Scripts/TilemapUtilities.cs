@@ -196,4 +196,94 @@ namespace PaintDots.ECS.Utilities
             TilemapUtilities.PaintRectangle(ecb, min, max, tileID);
         }
     }
+
+    /// <summary>
+    /// Static utility class for grid occupancy management and multi-tile operations
+    /// </summary>
+    public static class GridOccupancyManager
+    {
+        /// <summary>
+        /// Checks if a footprint area is free of occupied cells
+        /// </summary>
+        public static bool IsFootprintFree(int2 origin, int2 size, NativeArray<Tile> existingTiles, NativeArray<Entity> structureEntities, ComponentLookup<Footprint> footprintLookup)
+        {
+            // Check single tiles first
+            for (int x = 0; x < size.x; x++)
+            {
+                for (int y = 0; y < size.y; y++)
+                {
+                    var checkPos = origin + new int2(x, y);
+                    
+                    // Check if any single tile occupies this position
+                    for (int i = 0; i < existingTiles.Length; i++)
+                    {
+                        if (existingTiles[i].GridPosition.Equals(checkPos))
+                            return false;
+                    }
+                }
+            }
+
+            // Check multi-tile structures
+            for (int i = 0; i < structureEntities.Length; i++)
+            {
+                if (!footprintLookup.HasComponent(structureEntities[i])) continue;
+                
+                var footprint = footprintLookup[structureEntities[i]];
+                
+                // Check if footprints overlap
+                if (FootprintsOverlap(origin, size, footprint.Origin, footprint.Size))
+                    return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Checks if two footprints overlap
+        /// </summary>
+        public static bool FootprintsOverlap(int2 origin1, int2 size1, int2 origin2, int2 size2)
+        {
+            var max1 = origin1 + size1 - 1;
+            var max2 = origin2 + size2 - 1;
+            
+            return !(max1.x < origin2.x || origin1.x > max2.x || max1.y < origin2.y || origin1.y > max2.y);
+        }
+
+        /// <summary>
+        /// Fills a DynamicBuffer with all positions covered by a footprint
+        /// </summary>
+        public static void FillOccupiedCells(DynamicBuffer<OccupiedCell> buffer, int2 origin, int2 size)
+        {
+            buffer.Clear();
+            for (int x = 0; x < size.x; x++)
+            {
+                for (int y = 0; y < size.y; y++)
+                {
+                    buffer.Add(new OccupiedCell(origin + new int2(x, y)));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Gets the structure entity occupying a specific grid position, if any
+        /// </summary>
+        public static Entity GetStructureAtPosition(int2 position, NativeArray<Entity> structureEntities, ComponentLookup<Footprint> footprintLookup)
+        {
+            for (int i = 0; i < structureEntities.Length; i++)
+            {
+                var entity = structureEntities[i];
+                if (!footprintLookup.HasComponent(entity)) continue;
+                
+                var footprint = footprintLookup[entity];
+                
+                if (position.x >= footprint.Origin.x && position.x < footprint.Origin.x + footprint.Size.x &&
+                    position.y >= footprint.Origin.y && position.y < footprint.Origin.y + footprint.Size.y)
+                {
+                    return entity;
+                }
+            }
+            
+            return Entity.Null;
+        }
+    }
 }

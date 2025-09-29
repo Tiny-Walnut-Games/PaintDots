@@ -25,6 +25,7 @@ namespace PaintDots.ECS
     {
         public readonly BlobArray<Entity> TileEntities; // References to tile prefabs
         public readonly BlobArray<int> TileIDs; // Corresponding tile IDs
+        public readonly BlobArray<StructureVisual> StructureVisuals; // Multi-tile structure prefabs
     }
 
     /// <summary>
@@ -34,11 +35,27 @@ namespace PaintDots.ECS
     {
         public readonly int2 GridPosition;
         public readonly int TileID;
+        public readonly bool IsMultiTile; // Flag to indicate if this is a multi-tile structure
+        public readonly int2 Size; // Size for multi-tile structures (ignored for single tiles)
 
-        public PaintCommand(int2 gridPosition, int tileID)
+        public PaintCommand(int2 gridPosition, int tileID, bool isMultiTile = false, int2 size = default)
         {
             GridPosition = gridPosition;
             TileID = tileID;
+            IsMultiTile = isMultiTile;
+            Size = size.Equals(default) && isMultiTile ? new int2(1, 1) : size;
+        }
+
+        // Factory method for single tiles
+        public static PaintCommand SingleTile(int2 gridPosition, int tileID)
+        {
+            return new PaintCommand(gridPosition, tileID, false, default);
+        }
+
+        // Factory method for multi-tile structures
+        public static PaintCommand MultiTile(int2 gridPosition, int tileID, int2 size)
+        {
+            return new PaintCommand(gridPosition, tileID, true, size);
         }
     }
 
@@ -95,6 +112,59 @@ namespace PaintDots.ECS
         public TileRenderData WithSpriteIndex(int newSpriteIndex)
         {
             return new TileRenderData(MaterialEntity, MeshEntity, Color, newSpriteIndex);
+        }
+    }
+
+    /// <summary>
+    /// Footprint component for multi-tile entities
+    /// </summary>
+    public readonly struct Footprint : IComponentData
+    {
+        public readonly int2 Origin;   // anchor tile (e.g. bottom-left)
+        public readonly int2 Size;     // width/height in tiles
+
+        public Footprint(int2 origin, int2 size)
+        {
+            Origin = origin;
+            Size = size;
+        }
+    }
+
+    /// <summary>
+    /// Buffer element for tracking occupied cells in multi-tile entities
+    /// </summary>
+    public readonly struct OccupiedCell : IBufferElementData
+    {
+        public readonly int2 Position;
+
+        public OccupiedCell(int2 position)
+        {
+            Position = position;
+        }
+
+        public static implicit operator int2(OccupiedCell cell)
+        {
+            return cell.Position;
+        }
+
+        public static implicit operator OccupiedCell(int2 position)
+        {
+            return new OccupiedCell(position);
+        }
+    }
+
+    /// <summary>
+    /// Structure visual definition for multi-tile prefabs in palette
+    /// </summary>
+    public readonly struct StructureVisual
+    {
+        public readonly Entity Prefab;  // prefab with render + transform
+        public readonly int2 Size;      // footprint dimensions
+
+        public StructureVisual(Entity prefab, int2 size)
+        {
+            Prefab = prefab;
+            Size = size;
         }
     }
 }
