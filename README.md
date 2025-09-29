@@ -115,6 +115,57 @@ state.EntityManager.AddSharedComponentManaged(e, new MaterialMeshInfo
 
 ---
 
+## 🏠 Multi‑Tile Entity Support
+
+### Footprint Component
+For larger structures that span multiple tiles, use the `Footprint` component:
+
+```csharp
+public struct Footprint : IComponentData
+{
+    public int2 Origin;      // anchor tile (e.g. bottom-left)
+    public int2 Size;        // width/height in tiles
+}
+```
+
+### Enhanced Paint Commands
+The `PaintCommand` now supports both single and multi-tile placement:
+
+```csharp
+// Single tile
+var singleTile = PaintCommand.SingleTile(new int2(5, 5), tileID: 1);
+
+// Multi-tile structure (3x2 house)
+var house = PaintCommand.MultiTile(new int2(10, 5), tileID: 2, new int2(3, 2));
+```
+
+### Structure Placement Workflow
+1. **Occupancy Check**: System validates the footprint area is free.
+2. **Entity Creation**: Spawns one entity representing the entire structure.
+3. **Grid Marking**: Fills `DynamicBuffer<OccupiedCell>` with covered positions.
+4. **Rendering**: Single mesh prefab positioned at origin.
+
+```csharp
+public struct OccupiedCell : IBufferElementData
+{
+    public int2 Position;
+}
+```
+
+### Example: Placing a 3×2 House
+```csharp
+// Create paint command for house at (10,5)
+var houseCommand = PaintCommand.MultiTile(new int2(10, 5), houseID, new int2(3, 2));
+
+// System will:
+// 1. Check grid cells (10,5) through (12,6) are free
+// 2. Create HouseEntity with Footprint { Origin=(10,5), Size=(3,2) }
+// 3. Fill OccupiedCell buffer with all covered positions
+// 4. Position and render the structure prefab
+```
+
+---
+
 ## 🎨 Painting Workflow
 1. Create a system or editor tool that spawns `PaintCommand` entities.
 2. `TilemapPainterSystem` consumes commands and spawns tile entities.
@@ -130,6 +181,7 @@ state.EntityManager.AddSharedComponentManaged(e, new MaterialMeshInfo
 ---
 
 ## 🚀 Roadmap
+- [x] **Multi-tile entity support** - Place structures spanning multiple grid cells.
 - [ ] Editor window for painting in Scene view.  
 - [ ] Support for animated tiles.  
 - [ ] Chunked tilemaps for large worlds.  
