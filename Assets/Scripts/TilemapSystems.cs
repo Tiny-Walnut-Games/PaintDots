@@ -276,24 +276,25 @@ namespace PaintDots.ECS.Systems
             var ecb = SystemAPI.GetSingleton<EndSimulationEntityCommandBufferSystem.Singleton>()
                 .CreateCommandBuffer(state.WorldUnmanaged);
 
-            // Get all existing tiles for efficient lookup
+            // Build a hash map for fast tile lookup by grid position
             using var existingTiles = _tileQuery.ToComponentDataArray<Tile>(Allocator.TempJob);
             using var tileEntities = _tileQuery.ToEntityArray(Allocator.TempJob);
+            using var tileMap = new NativeHashMap<int2, Entity>(existingTiles.Length, Allocator.Temp);
+            for (int i = 0; i < existingTiles.Length; i++)
+            {
+                tileMap[existingTiles[i].GridPosition] = tileEntities[i];
+            }
 
             // Process erase commands
             foreach (var (eraseCommand, commandEntity) in 
                 SystemAPI.Query<RefRO<EraseCommand>>().WithEntityAccess())
             {
                 var gridPos = eraseCommand.ValueRO.GridPosition;
-                
-                // Find tile at this position and destroy it
-                for (int i = 0; i < existingTiles.Length; i++)
+
+                // Use hash map to find and destroy tile at this position
+                if (tileMap.TryGetValue(gridPos, out var tileEntity))
                 {
-                    if (existingTiles[i].GridPosition.Equals(gridPos))
-                    {
-                        ecb.DestroyEntity(tileEntities[i]);
-                        break;
-                    }
+                    ecb.DestroyEntity(tileEntity);
                 }
 
                 // Remove the erase command
