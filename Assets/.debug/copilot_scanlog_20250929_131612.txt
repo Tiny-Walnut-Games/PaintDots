@@ -1,0 +1,33 @@
+<CopilotScanLog>
+  <Result>[Unused Private Field] E:/Tiny_Walnut_Games/PaintDots/Assets\Tiny Walnut Games\PaintDots\Editor\TilemapPainterWindow.cs:14:9 -&gt; private field &apos;_selectedTileID&apos; appears unused.</Result>
+  <Result>[Unused Private Field] E:/Tiny_Walnut_Games/PaintDots/Assets\Tiny Walnut Games\PaintDots\Editor\TilemapPainterWindow.cs:15:9 -&gt; private field &apos;_isPainting&apos; appears unused.</Result>
+  <Result>[Unused Private Field] E:/Tiny_Walnut_Games/PaintDots/Assets\Tiny Walnut Games\PaintDots\Editor\TilemapPainterWindow.cs:16:9 -&gt; private field &apos;_world&apos; appears unused.</Result>
+  <Result>[Unused Private Field] E:/Tiny_Walnut_Games/PaintDots/Assets\Tiny Walnut Games\PaintDots\Editor\TilemapPainterWindow.cs:17:9 -&gt; private field &apos;_entityManager&apos; appears unused.</Result>
+  <Result>[Unused Private Method] E:/Tiny_Walnut_Games/PaintDots/Assets\Tiny Walnut Games\PaintDots\Editor\TilemapPainterWindow.cs:25:9 -&gt; private method &apos;OnEnable&apos; appears unused.</Result>
+  <Result>[Unused Private Method] E:/Tiny_Walnut_Games/PaintDots/Assets\Tiny Walnut Games\PaintDots\Editor\TilemapPainterWindow.cs:37:9 -&gt; private method &apos;OnDisable&apos; appears unused.</Result>
+  <Result>[Unused Private Method] E:/Tiny_Walnut_Games/PaintDots/Assets\Tiny Walnut Games\PaintDots\Editor\TilemapPainterWindow.cs:42:9 -&gt; private method &apos;OnGUI&apos; appears unused.</Result>
+  <Result>[Unused Private Method] E:/Tiny_Walnut_Games/PaintDots/Assets\Tiny Walnut Games\PaintDots\Editor\TilemapPainterWindow.cs:72:9 -&gt; private method &apos;OnSceneGUI&apos; appears unused.</Result>
+  <Result>[Unused Private Method] E:/Tiny_Walnut_Games/PaintDots/Assets\Tiny Walnut Games\PaintDots\Editor\TilemapPainterWindow.cs:118:9 -&gt; private method &apos;PaintTile&apos; appears unused.</Result>
+  <Result>[Unused Private Method] E:/Tiny_Walnut_Games/PaintDots/Assets\Tiny Walnut Games\PaintDots\Editor\TilemapPainterWindow.cs:129:9 -&gt; private method &apos;EraseTile&apos; appears unused.</Result>
+  <Result>[Unused Private Field] E:/Tiny_Walnut_Games/PaintDots/Assets\Tiny Walnut Games\PaintDots\Scripts\MultiTileExamples.cs:88:9 -&gt; private field &apos;_levelGenerated&apos; appears unused.</Result>
+  <Result>[Unused Private Field] E:/Tiny_Walnut_Games/PaintDots/Assets\Tiny Walnut Games\PaintDots\Scripts\MultiTileExamples.cs:120:38 -&gt; private field &apos;footprintSize&apos; appears unused.</Result>
+  <Result>[Unused Private Field] E:/Tiny_Walnut_Games/PaintDots/Assets\Tiny Walnut Games\PaintDots\Scripts\MultiTileExamples.cs:121:38 -&gt; private field &apos;tileID&apos; appears unused.</Result>
+  <Result>[Unused Private Field] E:/Tiny_Walnut_Games/PaintDots/Assets\Tiny Walnut Games\PaintDots\Scripts\MultiTileExamples.cs:122:38 -&gt; private field &apos;useAsTemplate&apos; appears unused.</Result>
+  <Result>[Unused Private Method] E:/Tiny_Walnut_Games/PaintDots/Assets\Tiny Walnut Games\PaintDots\Scripts\MultiTileExamples.cs:120:38 -&gt; private method &apos;int2&apos; appears unused.</Result>
+  <Result>[Unused Private Field] E:/Tiny_Walnut_Games/PaintDots/Assets\Tiny Walnut Games\PaintDots\Scripts\MultiTileValidation.cs:134:9 -&gt; private field &apos;_validationRun&apos; appears unused.</Result>
+  <Result>[Unused Private Field] E:/Tiny_Walnut_Games/PaintDots/Assets\Tiny Walnut Games\PaintDots\Scripts\TilemapSystems.cs:20:9 -&gt; private field &apos;_paintCommandQuery&apos; appears unused.</Result>
+  <Result>[Unused Private Field] E:/Tiny_Walnut_Games/PaintDots/Assets\Tiny Walnut Games\PaintDots\Scripts\TilemapSystems.cs:21:9 -&gt; private field &apos;_existingTileQuery&apos; appears unused.</Result>
+  <Result>[Unused Private Field] E:/Tiny_Walnut_Games/PaintDots/Assets\Tiny Walnut Games\PaintDots\Scripts\TilemapSystems.cs:22:9 -&gt; private field &apos;_configQuery&apos; appears unused.</Result>
+  <Result>[Unused Private Field] E:/Tiny_Walnut_Games/PaintDots/Assets\Tiny Walnut Games\PaintDots\Scripts\TilemapSystems.cs:23:9 -&gt; private field &apos;_structureQuery&apos; appears unused.</Result>
+  <Result>[Unused Private Field] E:/Tiny_Walnut_Games/PaintDots/Assets\Tiny Walnut Games\PaintDots\Scripts\TilemapSystems.cs:174:9 -&gt; private field &apos;_autoTileQuery&apos; appears unused.</Result>
+  <Result>[Unused Private Field] E:/Tiny_Walnut_Games/PaintDots/Assets\Tiny Walnut Games\PaintDots\Scripts\TilemapSystems.cs:175:9 -&gt; private field &apos;_allTilesQuery&apos; appears unused.</Result>
+  <Result>[Unused Private Field] E:/Tiny_Walnut_Games/PaintDots/Assets\Tiny Walnut Games\PaintDots\Scripts\TilemapSystems.cs:285:9 -&gt; private field &apos;_tileQuery&apos; appears unused.</Result>
+  <Result>[Unused Private Method] E:/Tiny_Walnut_Games/PaintDots/Assets\Tiny Walnut Games\PaintDots\Scripts\TilemapSystems.cs:84:9 -&gt; private method &apos;ProcessSingleTileCommand&apos; appears unused.</Result>
+  <Result>[Unused Private Method] E:/Tiny_Walnut_Games/PaintDots/Assets\Tiny Walnut Games\PaintDots\Scripts\TilemapSystems.cs:112:9 -&gt; private method &apos;ProcessMultiTileCommand&apos; appears unused.</Result>
+  <Result>[Unused Private Method] E:/Tiny_Walnut_Games/PaintDots/Assets\Tiny Walnut Games\PaintDots\Scripts\TilemapSystems.cs:153:9 -&gt; private method &apos;FindTileAtPosition&apos; appears unused.</Result>
+  <Result>[Unused Private Method] E:/Tiny_Walnut_Games/PaintDots/Assets\Tiny Walnut Games\PaintDots\Scripts\TilemapSystems.cs:231:9 -&gt; private method &apos;CalculateNeighbors&apos; appears unused.</Result>
+  <Result>[Unused Private Method] E:/Tiny_Walnut_Games/PaintDots/Assets\Tiny Walnut Games\PaintDots\Scripts\TilemapSystems.cs:254:9 -&gt; private method &apos;HasTileAtPosition&apos; appears unused.</Result>
+  <Result>[Unused Private Method] E:/Tiny_Walnut_Games/PaintDots/Assets\Tiny Walnut Games\PaintDots\Scripts\TilemapSystems.cs:265:9 -&gt; private method &apos;CalculateAutoTileFlags&apos; appears unused.</Result>
+  <Result>[Unused Private Method] E:/Tiny_Walnut_Games/PaintDots/Assets\Tiny Walnut Games\PaintDots\Scripts\TilemapSystems.cs:270:9 -&gt; private method &apos;GetVariantIndexFromFlags&apos; appears unused.</Result>
+  <Result>[Unused Private Method] E:/Tiny_Walnut_Games/PaintDots/Assets\Tiny Walnut Games\PaintDots\Scripts\TilemapUtilities.cs:311:9 -&gt; private method &apos;PaintSquare&apos; appears unused.</Result>
+</CopilotScanLog>

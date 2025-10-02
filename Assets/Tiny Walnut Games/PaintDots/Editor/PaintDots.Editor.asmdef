@@ -6,7 +6,10 @@
         "Unity.Entities.Editor",
         "Unity.Mathematics",
         "Unity.Collections",
-        "PaintDots.Runtime"
+        "PaintDots.Runtime",
+        "Unity.2D.Tilemap.Editor",
+        "Unity.2D.Tilemap.Extras",
+        "Unity.2D.Tilemap.Extras.Editor"
     ],
     "includePlatforms": [
         "Editor"
