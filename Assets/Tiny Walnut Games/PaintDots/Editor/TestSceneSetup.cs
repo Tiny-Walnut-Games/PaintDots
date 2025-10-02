@@ -2,7 +2,7 @@ using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.SceneManagement;
-using PaintDots.ECS.Authoring;
+using PaintDots.Runtime.Authoring;
 using Unity.Mathematics;
 using System.IO;
 

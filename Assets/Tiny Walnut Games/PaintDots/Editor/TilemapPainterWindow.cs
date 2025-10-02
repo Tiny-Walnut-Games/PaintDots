@@ -3,9 +3,12 @@ using Unity.Mathematics;
 using UnityEditor;
 using UnityEngine;
 using Unity.Collections;
-using PaintDots.ECS;
-using PaintDots.ECS.Utilities;
-using PaintDots.ECS.Config;
+using PaintDots.Runtime;
+using PaintDots.Runtime.Utilities;
+using PaintDots.Runtime.Config;
+using PaintDots.Runtime.ABCs;
+using PaintDots.Runtime.Authoring;
+using PaintDots.Editor.ABCs;
 using System;
 using System.Reflection;
 using System.IO;
@@ -28,7 +31,7 @@ namespace PaintDots.Editor
     private int _paletteCount = 16;
     private int _paletteColumns = 8;
     private Vector2 _paletteScroll;
-    private PaintDots.Editor.TilePalette _selectedPalette;
+    private TilePalette _selectedPalette;
     private Texture2D _paletteTexturePreview;
     private int _selectedPaletteIndex = -1;
     // Preview selection for region-based palette creation
@@ -63,7 +66,7 @@ namespace PaintDots.Editor
     private bool _useAutoTile = false;
     // Overlay options
     private bool _showEdgeProfileOverlays = false;
-    private PaintDots.ECS.ABCs.EdgeProfileAsset _loadedEdgeProfile;
+    private EdgeProfileAsset _loadedEdgeProfile;
         
         [MenuItem("Window/PaintDots/Tilemap Painter")]
         public static void ShowWindow()
@@ -92,22 +95,37 @@ namespace PaintDots.Editor
         {
             EditorGUILayout.LabelField("Tilemap Painter", EditorStyles.boldLabel);
             EditorGUILayout.Space();
-            
-            EditorGUILayout.LabelField("Painting Tools", EditorStyles.boldLabel);
-            EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.LabelField("Selected Tile ID", GUILayout.Width(110));
-            _selectedTileID = EditorGUILayout.IntField(_selectedTileID, GUILayout.Width(60));
-            if (GUILayout.Button("Reset", GUILayout.Width(60))) _selectedTileID = 0;
-            EditorGUILayout.EndHorizontal();
 
-            // Palette (ScriptableObject support)
+            EditorGUILayout.BeginHorizontal();
+
+            EditorGUILayout.BeginVertical(GUILayout.Width(Mathf.Max(320f, position.width * 0.55f)));
+            DrawPalettePane();
+            EditorGUILayout.EndVertical();
+
+            GUILayout.Space(8f);
+
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox, GUILayout.ExpandWidth(true));
+            DrawInspectorPane();
+            EditorGUILayout.EndVertical();
+
+            EditorGUILayout.EndHorizontal();
+        }
+
+        private void DrawPalettePane()
+        {
+            DrawPaletteSelectorSection();
+            EditorGUILayout.Space();
+            DrawTexturePreviewSection();
+        }
+
+        private void DrawPaletteSelectorSection()
+        {
             EditorGUILayout.LabelField("Palette", EditorStyles.boldLabel);
-            _selectedPalette = (PaintDots.Editor.TilePalette)EditorGUILayout.ObjectField("Tile Palette", _selectedPalette, typeof(PaintDots.Editor.TilePalette), false);
+            _selectedPalette = (TilePalette)EditorGUILayout.ObjectField("Tile Palette", _selectedPalette, typeof(TilePalette), false);
 
             if (_selectedPalette != null && _selectedPalette.Texture != null)
             {
                 _paletteTexturePreview = _selectedPalette.Texture;
-                // Display tiles from palette
                 int total = _selectedPalette.Tiles != null ? _selectedPalette.Tiles.Count : 0;
                 int cols = Mathf.Max(1, _paletteColumns);
                 int rows = Mathf.CeilToInt((float)total / cols);
@@ -121,27 +139,24 @@ namespace PaintDots.Editor
                     {
                         if (tid >= total) break;
                         var uv = _selectedPalette.Tiles[tid];
-                        if (GUILayout.Button("", GUILayout.Width(40), GUILayout.Height(40)))
+                        if (GUILayout.Button(GUIContent.none, GUILayout.Width(40), GUILayout.Height(40)))
                         {
                             _selectedTileID = (tid < _selectedPalette.TileIDs.Count) ? _selectedPalette.TileIDs[tid] : tid;
                             _selectedPaletteIndex = tid;
                         }
 
-                        // Draw thumbnail overlay
                         var lastRect = GUILayoutUtility.GetLastRect();
                         if (_paletteTexturePreview != null)
                         {
                             GUI.DrawTextureWithTexCoords(lastRect, _paletteTexturePreview, uv);
                         }
 
-                        // Draw a small slot indicator for AutoTile mapping
                         if (_selectedPalette.SlotAutoTileAssets != null && tid < _selectedPalette.SlotAutoTileAssets.Count && _selectedPalette.SlotAutoTileAssets[tid] != null)
                         {
                             var badgeRect = new Rect(lastRect.xMax - 12, lastRect.yMin + 2, 10, 10);
                             EditorGUI.DrawRect(badgeRect, Color.cyan);
                             if (Event.current.type == EventType.MouseDown && badgeRect.Contains(Event.current.mousePosition))
                             {
-                                // open the assigned asset
                                 Selection.activeObject = _selectedPalette.SlotAutoTileAssets[tid];
                             }
                         }
@@ -152,7 +167,6 @@ namespace PaintDots.Editor
                 }
                 EditorGUILayout.EndScrollView();
 
-                // Per-slot AutoTile assignment UI
                 if (_selectedPaletteIndex >= 0 && _selectedPaletteIndex < _selectedPalette.Tiles.Count)
                 {
                     EditorGUILayout.Space();
@@ -165,7 +179,6 @@ namespace PaintDots.Editor
                     if (_selectedPalette.SlotAutoTileAssets == null)
                         _selectedPalette.SlotAutoTileAssets = new System.Collections.Generic.List<UnityEngine.Object>();
 
-                    // ensure list size
                     while (_selectedPalette.SlotAutoTileAssets.Count <= _selectedPaletteIndex)
                         _selectedPalette.SlotAutoTileAssets.Add(null);
 
@@ -173,14 +186,13 @@ namespace PaintDots.Editor
                     {
                         _selectedPalette.SlotAutoTileAssets[_selectedPaletteIndex] = assigned;
                         EditorUtility.SetDirty(_selectedPalette);
-                        UnityEditor.AssetDatabase.SaveAssets();
+                        AssetDatabase.SaveAssets();
                     }
                 }
 
                 EditorGUILayout.Space();
                 if (GUILayout.Button("Generate AutoTile Assets for Palette"))
                 {
-                    // determine palette asset path
                     string assetPath = AssetDatabase.GetAssetPath(_selectedPalette);
                     if (!string.IsNullOrEmpty(assetPath))
                     {
@@ -194,7 +206,6 @@ namespace PaintDots.Editor
             }
             else
             {
-                // Fallback numeric palette
                 _paletteStart = EditorGUILayout.IntField("Start ID", _paletteStart);
                 _paletteCount = EditorGUILayout.IntField("Count", _paletteCount);
                 _paletteColumns = EditorGUILayout.IntField("Columns", _paletteColumns);
@@ -218,455 +229,442 @@ namespace PaintDots.Editor
                 }
                 EditorGUILayout.EndScrollView();
             }
+        }
 
-            // Create palette from texture helper
-            EditorGUILayout.Space();
-            EditorGUILayout.LabelField("Create Palette", EditorStyles.boldLabel);
-            UnityEngine.Object sourceObj = EditorGUILayout.ObjectField("Source Texture/Sprite", _createSourceTexture, typeof(UnityEngine.Object), false);
-            // Resolve sprite -> texture or texture directly
-            if (sourceObj != null)
+        private void DrawTexturePreviewSection()
+        {
+            EditorGUILayout.LabelField("Texture Preview", EditorStyles.boldLabel);
+
+            if (_createSourceTexture == null)
             {
-                if (sourceObj is Sprite s)
-                {
-                    _createSourceTexture = s.texture;
-                }
-                else if (sourceObj is Texture2D t)
-                {
-                    _createSourceTexture = t;
-                }
-                else
-                {
-                    _createSourceTexture = null;
-                }
+                EditorGUILayout.HelpBox("Assign a Source Texture in the inspector panel to preview and slice tiles.", MessageType.Info);
+                return;
             }
-            _createTileWidth = EditorGUILayout.IntField("Tile Width", _createTileWidth);
-            _createTileHeight = EditorGUILayout.IntField("Tile Height", _createTileHeight);
-            _createMargin = EditorGUILayout.IntField("Margin", _createMargin);
-            _createSpacing = EditorGUILayout.IntField("Spacing", _createSpacing);
-            _snapToGrid = EditorGUILayout.Toggle("Snap to Grid", _snapToGrid);
-            _showEdgeProfileOverlays = EditorGUILayout.Toggle("Show EdgeProfile Overlays", _showEdgeProfileOverlays);
-            if (_showEdgeProfileOverlays)
-            {
-                var picked = (PaintDots.ECS.ABCs.EdgeProfileAsset)EditorGUILayout.ObjectField("EdgeProfile Asset", _loadedEdgeProfile, typeof(PaintDots.ECS.ABCs.EdgeProfileAsset), false);
-                if (picked != _loadedEdgeProfile)
-                {
-                    _loadedEdgeProfile = picked;
-                }
-            }
-            // Zoom & pan controls for preview
+
             EditorGUILayout.BeginHorizontal();
             EditorGUILayout.LabelField("Zoom", GUILayout.Width(40));
             _previewZoom = EditorGUILayout.FloatField(_previewZoom, GUILayout.Width(60));
             if (GUILayout.Button("Fit", GUILayout.Width(40))) _previewZoom = 1f;
-            if (GUILayout.Button("1:1", GUILayout.Width(40)))
-            {
-                // set zoom so that 1 tex pixel == 1 screen pixel
-                // this requires computing baseScale, do it in preview draw below; for now set marker - will be adjusted when drawing
-                _previewZoom = 0f; // special marker handled below
-            }
-            if (GUILayout.Button("24px", GUILayout.Width(50)))
-            {
-                // zoom to make 24 tex pixels span the preview width (will be computed when drawing)
-                _previewZoom = -24f; // special marker (-N means zoom to make N pixels fill width)
-            }
+            if (GUILayout.Button("1:1", GUILayout.Width(40))) _previewZoom = 0f;
+            if (GUILayout.Button("24px", GUILayout.Width(50))) _previewZoom = -24f;
             if (GUILayout.Button("Reset Pan", GUILayout.Width(80))) { _previewPan = Vector2.zero; }
             EditorGUILayout.EndHorizontal();
 
-            // Full texture preview with selection
-            if (_createSourceTexture != null)
+            Rect previewRect = GUILayoutUtility.GetRect(256, 256, GUILayout.ExpandWidth(true));
+
+            float texWf = _createSourceTexture.width;
+            float texHf = _createSourceTexture.height;
+            float baseScale = Mathf.Min(previewRect.width / texWf, previewRect.height / texHf);
+
+            float appliedZoom = _previewZoom;
+            if (_previewZoom == 0f)
             {
-                Rect previewRect = GUILayoutUtility.GetRect(256, 256, GUILayout.ExpandWidth(true));
-                // Compute base fit scale
-                float texWf = (float)_createSourceTexture.width;
-                float texHf = (float)_createSourceTexture.height;
-                float baseScale = Mathf.Min(previewRect.width / texWf, previewRect.height / texHf);
+                appliedZoom = 1f / Mathf.Max(1e-6f, baseScale);
+            }
+            else if (_previewZoom < 0f)
+            {
+                float targetTexPixels = -_previewZoom;
+                float displayPerTexNeeded = previewRect.width / Mathf.Max(1f, targetTexPixels);
+                appliedZoom = displayPerTexNeeded / Mathf.Max(1e-6f, baseScale);
+            }
 
-                // Interpret special previewZoom markers set by buttons
-                float appliedZoom = _previewZoom;
-                if (_previewZoom == 0f)
+            appliedZoom = Mathf.Clamp(appliedZoom, 1f / 1024f, 1024f);
+            if (_previewZoom == 0f || _previewZoom < 0f) _previewZoom = appliedZoom;
+
+            float drawW = texWf * baseScale * appliedZoom;
+            float drawH = texHf * baseScale * appliedZoom;
+
+            Vector2 panDisplay = new Vector2(_previewPan.x * (drawW / texWf), _previewPan.y * (drawH / texHf));
+            Rect contentRect = new Rect(previewRect.x + (previewRect.width - drawW) * 0.5f + panDisplay.x,
+                                        previewRect.y + (previewRect.height - drawH) * 0.5f + panDisplay.y,
+                                        drawW,
+                                        drawH);
+
+            Rect contentRectLocal = new Rect(contentRect.x - previewRect.x, contentRect.y - previewRect.y, contentRect.width, contentRect.height);
+            GUI.BeginGroup(previewRect);
+            GUI.DrawTexture(contentRectLocal, _createSourceTexture, ScaleMode.ScaleToFit);
+            if (_createTileWidth > 0 && _createTileHeight > 0)
+            {
+                int colsTex = Mathf.Max(1, Mathf.FloorToInt((float)_createSourceTexture.width / Mathf.Max(1, _createTileWidth)));
+                int rowsTex = Mathf.Max(1, Mathf.FloorToInt((float)_createSourceTexture.height / Mathf.Max(1, _createTileHeight)));
+                float cellW = contentRectLocal.width / (float)colsTex;
+                float cellH = contentRectLocal.height / (float)rowsTex;
+                Color lineCol = new Color(1f, 1f, 1f, 0.15f);
+                for (int xi = 1; xi < colsTex; xi++)
                 {
-                    // 1:1 => want texture pixels to map 1:1 to screen pixels
-                    appliedZoom = 1f / Mathf.Max(1e-6f, baseScale);
+                    Rect r = new Rect(contentRectLocal.x + xi * cellW - 0.5f, contentRectLocal.y, 1f, contentRectLocal.height);
+                    EditorGUI.DrawRect(r, lineCol);
                 }
-                else if (_previewZoom < 0f)
+                for (int yi = 1; yi < rowsTex; yi++)
                 {
-                    // negative value encodes zoom-to-n-pixels (e.g., -24 means 24 pixels span preview width)
-                    float targetTexPixels = -_previewZoom;
-                    // compute zoom so that targetTexPixels * displayPerTex == previewRect.width
-                    float displayPerTexNeeded = previewRect.width / targetTexPixels;
-                    appliedZoom = displayPerTexNeeded / baseScale;
+                    Rect r = new Rect(contentRectLocal.x, contentRectLocal.y + yi * cellH - 0.5f, contentRectLocal.width, 1f);
+                    EditorGUI.DrawRect(r, lineCol);
                 }
+            }
 
-                // Clamp zoom to reasonable range (prevent infinity)
-                appliedZoom = Mathf.Clamp(appliedZoom, 1f / 1024f, 1024f);
-                // If the _previewZoom was a special marker, store back a normalized value so subsequent interactions use it
-                if (_previewZoom == 0f || _previewZoom < 0f) _previewZoom = appliedZoom;
-
-                float drawW = texWf * baseScale * appliedZoom;
-                float drawH = texHf * baseScale * appliedZoom;
-
-                // compute content rect centered then offset by pan (pan is in texture pixels converted to display pixels)
-                Vector2 panDisplay = new Vector2(_previewPan.x * (drawW / texWf), _previewPan.y * (drawH / texHf));
-                Rect contentRect = new Rect(previewRect.x + (previewRect.width - drawW) * 0.5f + panDisplay.x,
-                                            previewRect.y + (previewRect.height - drawH) * 0.5f + panDisplay.y,
-                                            drawW,
-                                            drawH);
-
-                // Draw the texture into contentRect but clip to the previewRect so zoom doesn't overflow
-                // contentRect is in global GUI coords; convert to local for the group
-                Rect contentRectLocal = new Rect(contentRect.x - previewRect.x, contentRect.y - previewRect.y, contentRect.width, contentRect.height);
-                GUI.BeginGroup(previewRect);
-                GUI.DrawTexture(contentRectLocal, _createSourceTexture, ScaleMode.ScaleToFit);
-                // Draw tile grid overlay inside the group
-                if (_createTileWidth > 0 && _createTileHeight > 0 && _createSourceTexture != null)
+            if (_showEdgeProfileOverlays && _loadedEdgeProfile != null && _loadedEdgeProfile.SourceTexture == _createSourceTexture)
+            {
+                if (_loadedEdgeProfile.TileWidth == _createTileWidth && _loadedEdgeProfile.TileHeight == _createTileHeight)
                 {
-                    int colsTex = Mathf.Max(1, Mathf.FloorToInt((float)_createSourceTexture.width / Mathf.Max(1, _createTileWidth)));
-                    int rowsTex = Mathf.Max(1, Mathf.FloorToInt((float)_createSourceTexture.height / Mathf.Max(1, _createTileHeight)));
-                    float cellW = contentRectLocal.width / (float)colsTex;
-                    float cellH = contentRectLocal.height / (float)rowsTex;
-                    Color lineCol = new Color(1f, 1f, 1f, 0.15f);
-                    for (int xi = 1; xi < colsTex; xi++)
+                    int cols = Mathf.Max(1, Mathf.FloorToInt((float)_createSourceTexture.width / _createTileWidth));
+                    int rows = Mathf.Max(1, Mathf.FloorToInt((float)_createSourceTexture.height / _createTileHeight));
+                    float cellW = contentRectLocal.width / (float)cols;
+                    float cellH = contentRectLocal.height / (float)rows;
+                    for (int ry = 0; ry < rows; ry++)
                     {
-                        Rect r = new Rect(contentRectLocal.x + xi * cellW - 0.5f, contentRectLocal.y, 1f, contentRectLocal.height);
-                        EditorGUI.DrawRect(r, lineCol);
-                    }
-                    for (int yi = 1; yi < rowsTex; yi++)
-                    {
-                        Rect r = new Rect(contentRectLocal.x, contentRectLocal.y + yi * cellH - 0.5f, contentRectLocal.width, 1f);
-                        EditorGUI.DrawRect(r, lineCol);
-                    }
-                }
-
-                // Draw overlays if requested and an EdgeProfileAsset is loaded and matches dimensions
-                if (_showEdgeProfileOverlays && _loadedEdgeProfile != null && _loadedEdgeProfile.SourceTexture == _createSourceTexture)
-                {
-                    // Ensure tile dims match
-                    if (_loadedEdgeProfile.TileWidth == _createTileWidth && _loadedEdgeProfile.TileHeight == _createTileHeight)
-                    {
-                        int cols = Mathf.Max(1, Mathf.FloorToInt((float)_createSourceTexture.width / _createTileWidth));
-                        int rows = Mathf.Max(1, Mathf.FloorToInt((float)_createSourceTexture.height / _createTileHeight));
-                        float cellW = contentRectLocal.width / (float)cols;
-                        float cellH = contentRectLocal.height / (float)rows;
-                        for (int ry = 0; ry < rows; ry++)
+                        for (int rx = 0; rx < cols; rx++)
                         {
-                            for (int rx = 0; rx < cols; rx++)
+                            int idx = ry * cols + rx;
+                            if (idx >= _loadedEdgeProfile.Entries.Count) continue;
+                            var entry = _loadedEdgeProfile.Entries[idx];
+                            Rect cellRect = new Rect(contentRectLocal.x + rx * cellW, contentRectLocal.y + ry * cellH, cellW, cellH);
+                            Rect sw = new Rect(cellRect.x + 2, cellRect.y + 2, 12, 12);
+                            Color swc = new Color(entry.AvgRGB.x, entry.AvgRGB.y, entry.AvgRGB.z, 1f);
+                            EditorGUI.DrawRect(sw, swc);
+
+                            if (entry.FamilyId >= 0)
                             {
-                                int idx = ry * cols + rx;
-                                if (idx >= _loadedEdgeProfile.Entries.Count) continue;
-                                var entry = _loadedEdgeProfile.Entries[idx];
-                                // draw small swatch with AvgRGB at top-left of cell
-                                Rect cellRect = new Rect(contentRectLocal.x + rx * cellW, contentRectLocal.y + ry * cellH, cellW, cellH);
-                                Rect sw = new Rect(cellRect.x + 2, cellRect.y + 2, 12, 12);
-                                Color swc = new Color(entry.AvgRGB.x, entry.AvgRGB.y, entry.AvgRGB.z, 1f);
-                                EditorGUI.DrawRect(sw, swc);
-
-                                // draw FamilyId as label bottom-left
-                                if (entry.FamilyId >= 0)
+                                GUIStyle s = new GUIStyle(EditorStyles.label)
                                 {
-                                    GUIStyle s = new GUIStyle(EditorStyles.label);
-                                    s.fontSize = 10;
-                                    s.normal.textColor = Color.white;
-                                    Rect lab = new Rect(cellRect.x + 2, cellRect.y + cellRect.height - 14, 20, 12);
-                                    GUI.Label(lab, entry.FamilyId.ToString(), s);
-                                }
+                                    fontSize = 10,
+                                    normal = { textColor = Color.white }
+                                };
+                                Rect lab = new Rect(cellRect.x + 2, cellRect.y + cellRect.height - 14, 20, 12);
+                                GUI.Label(lab, entry.FamilyId.ToString(), s);
+                            }
 
-                                // draw chroma compatibility heat (small overlay in top-right)
-                                if (entry.ChromaCompatAvg >= 0f)
-                                {
-                                    float v = Mathf.Clamp01(entry.ChromaCompatAvg);
-                                    // map 0..1 to red->green
-                                    Color heat = Color.Lerp(Color.red, Color.green, v);
-                                    Rect heatR = new Rect(cellRect.x + cellRect.width - 14, cellRect.y + 2, 12, 12);
-                                    EditorGUI.DrawRect(heatR, heat);
-                                }
+                            if (entry.ChromaCompatAvg >= 0f)
+                            {
+                                float v = Mathf.Clamp01(entry.ChromaCompatAvg);
+                                Color heat = Color.Lerp(Color.red, Color.green, v);
+                                Rect heatR = new Rect(cellRect.x + cellRect.width - 14, cellRect.y + 2, 12, 12);
+                                EditorGUI.DrawRect(heatR, heat);
+                            }
 
-                                // draw family color (uses Entry.FamilyId)
-                                if (entry.FamilyId >= 0)
-                                {
-                                    int fid = entry.FamilyId;
-                                    // stable color from id
-                                    UnityEngine.Random.InitState(fid * 9973 + 17);
-                                    Color fam = UnityEngine.Random.ColorHSV(0f, 1f, 0.4f, 0.95f, 0.4f, 0.95f);
-                                    Rect famR = new Rect(cellRect.x + cellRect.width - 14, cellRect.y + cellRect.height - 14, 12, 12);
-                                    EditorGUI.DrawRect(famR, fam);
-                                }
+                            if (entry.FamilyId >= 0)
+                            {
+                                int fid = entry.FamilyId;
+                                UnityEngine.Random.InitState(fid * 9973 + 17);
+                                Color fam = UnityEngine.Random.ColorHSV(0f, 1f, 0.4f, 0.95f, 0.4f, 0.95f);
+                                Rect famR = new Rect(cellRect.x + cellRect.width - 14, cellRect.y + cellRect.height - 14, 12, 12);
+                                EditorGUI.DrawRect(famR, fam);
                             }
                         }
                     }
                 }
+            }
+            GUI.EndGroup();
+
+            _lastPreviewRect = contentRect;
+
+            Event ev = Event.current;
+
+            if (ev.type == EventType.ScrollWheel && _lastPreviewRect.Contains(ev.mousePosition))
+            {
+                float oldDisplayPerTexX = _lastPreviewRect.width / texWf;
+                float oldDisplayPerTexY = _lastPreviewRect.height / texHf;
+                float texUnderX = (ev.mousePosition.x - _lastPreviewRect.x) / oldDisplayPerTexX;
+                float texUnderY = (ev.mousePosition.y - _lastPreviewRect.y) / oldDisplayPerTexY;
+
+                float wheelDelta = -ev.delta.y;
+                float zoomFactor = Mathf.Pow(1.1f, wheelDelta);
+                float newZoom = Mathf.Clamp(_previewZoom * zoomFactor, 1f / 1024f, 1024f);
+
+                float newDrawW = texWf * baseScale * newZoom;
+                float newDrawH = texHf * baseScale * newZoom;
+
+                float newDisplayPerTexX = newDrawW / texWf;
+                float newDisplayPerTexY = newDrawH / texHf;
+
+                Vector2 newPan = _previewPan;
+                float previewCenterX = previewRect.x + (previewRect.width - newDrawW) * 0.5f;
+                float previewCenterY = previewRect.y + (previewRect.height - newDrawH) * 0.5f;
+
+                newPan.x = (ev.mousePosition.x - previewCenterX) / newDisplayPerTexX - texUnderX;
+                newPan.y = (ev.mousePosition.y - previewCenterY) / newDisplayPerTexY - texUnderY;
+
+                _previewZoom = newZoom;
+                _previewPan = newPan;
+                ev.Use();
+                Repaint();
+            }
+
+            if (ev.type == EventType.MouseDown && _lastPreviewRect.Contains(ev.mousePosition) && (ev.button == 2 || (ev.button == 0 && ev.alt)))
+            {
+                _isPanning = true;
+                _panStartMouse = ev.mousePosition;
+                _panStartOffset = _previewPan;
+                ev.Use();
+            }
+
+            if (_isPanning && ev.type == EventType.MouseDrag)
+            {
+                Vector2 delta = ev.mousePosition - _panStartMouse;
+                float displayPerTexX = _lastPreviewRect.width / texWf;
+                float displayPerTexY = _lastPreviewRect.height / texHf;
+                _previewPan = _panStartOffset + new Vector2(delta.x / displayPerTexX, delta.y / displayPerTexY);
+                ev.Use();
+                Repaint();
+            }
+
+            if (_isPanning && ev.type == EventType.MouseUp)
+            {
+                _isPanning = false;
+                ev.Use();
+            }
+
+            if (ev.type == EventType.MouseDown && ev.button == 0 && !_isPanning && _lastPreviewRect.Contains(ev.mousePosition))
+            {
+                _isPreviewSelecting = true;
+                float texWf2 = _createSourceTexture.width;
+                float texHf2 = _createSourceTexture.height;
+                _selectionStartTex = new Vector2(
+                    (ev.mousePosition.x - _lastPreviewRect.x) / Mathf.Max(1f, _lastPreviewRect.width) * texWf2,
+                    (ev.mousePosition.y - _lastPreviewRect.y) / Mathf.Max(1f, _lastPreviewRect.height) * texHf2
+                );
+                _selectionStartTex.x = Mathf.Clamp(_selectionStartTex.x, 0f, texWf2);
+                _selectionStartTex.y = Mathf.Clamp(_selectionStartTex.y, 0f, texHf2);
+                _selectionEndTex = _selectionStartTex;
+                ev.Use();
+            }
+
+            if (_isPreviewSelecting && ev.type == EventType.MouseDrag)
+            {
+                float texWf2 = _createSourceTexture.width;
+                float texHf2 = _createSourceTexture.height;
+                _selectionEndTex = new Vector2(
+                    (ev.mousePosition.x - _lastPreviewRect.x) / Mathf.Max(1f, _lastPreviewRect.width) * texWf2,
+                    (ev.mousePosition.y - _lastPreviewRect.y) / Mathf.Max(1f, _lastPreviewRect.height) * texHf2
+                );
+                _selectionEndTex.x = Mathf.Clamp(_selectionEndTex.x, 0f, texWf2);
+                _selectionEndTex.y = Mathf.Clamp(_selectionEndTex.y, 0f, texHf2);
+                ev.Use();
+                Repaint();
+            }
+
+            if (_isPreviewSelecting && ev.type == EventType.MouseUp)
+            {
+                float texWf2 = _createSourceTexture.width;
+                float texHf2 = _createSourceTexture.height;
+                _selectionEndTex = new Vector2(
+                    (ev.mousePosition.x - _lastPreviewRect.x) / Mathf.Max(1f, _lastPreviewRect.width) * texWf2,
+                    (ev.mousePosition.y - _lastPreviewRect.y) / Mathf.Max(1f, _lastPreviewRect.height) * texHf2
+                );
+                _selectionEndTex.x = Mathf.Clamp(_selectionEndTex.x, 0f, texWf2);
+                _selectionEndTex.y = Mathf.Clamp(_selectionEndTex.y, 0f, texHf2);
+                _isPreviewSelecting = false;
+                ev.Use();
+                Repaint();
+            }
+
+            if (_selectionStartTex != _selectionEndTex)
+            {
+                float texWf2 = _createSourceTexture.width;
+                float texHf2 = _createSourceTexture.height;
+                var sMin = Vector2.Min(_selectionStartTex, _selectionEndTex);
+                var sMax = Vector2.Max(_selectionStartTex, _selectionEndTex);
+
+                if (_snapToGrid && _createTileWidth > 0 && _createTileHeight > 0)
+                {
+                    sMin.x = Mathf.Floor(sMin.x / _createTileWidth) * _createTileWidth;
+                    sMin.y = Mathf.Floor(sMin.y / _createTileHeight) * _createTileHeight;
+                    sMax.x = Mathf.Ceil(sMax.x / _createTileWidth) * _createTileWidth;
+                    sMax.y = Mathf.Ceil(sMax.y / _createTileHeight) * _createTileHeight;
+                }
+
+                sMin.x = Mathf.Clamp(sMin.x, 0f, texWf2);
+                sMin.y = Mathf.Clamp(sMin.y, 0f, texHf2);
+                sMax.x = Mathf.Clamp(sMax.x, 0f, texWf2);
+                sMax.y = Mathf.Clamp(sMax.y, 0f, texHf2);
+
+                Rect selRectG = new Rect(
+                    _lastPreviewRect.x + (sMin.x / texWf2) * _lastPreviewRect.width,
+                    _lastPreviewRect.y + (sMin.y / texHf2) * _lastPreviewRect.height,
+                    ((sMax.x - sMin.x) / texWf2) * _lastPreviewRect.width,
+                    ((sMax.y - sMin.y) / texHf2) * _lastPreviewRect.height
+                );
+
+                Rect selLocal = new Rect(selRectG.x - previewRect.x, selRectG.y - previewRect.y, selRectG.width, selRectG.height);
+                GUI.BeginGroup(previewRect);
+                EditorGUI.DrawRect(selLocal, new Color(0.2f, 0.6f, 1f, 0.25f));
+                Rect outline = selLocal;
+                EditorGUI.DrawRect(new Rect(outline.x, outline.y, outline.width, 2f), Color.cyan);
+                EditorGUI.DrawRect(new Rect(outline.x, outline.y + outline.height - 2f, outline.width, 2f), Color.cyan);
+                EditorGUI.DrawRect(new Rect(outline.x, outline.y, 2f, outline.height), Color.cyan);
+                EditorGUI.DrawRect(new Rect(outline.x + outline.width - 2f, outline.y, 2f, outline.height), Color.cyan);
                 GUI.EndGroup();
+            }
 
-                // store previewRect for mapping later (use the actual texture draw rect in global coords)
-                _lastPreviewRect = contentRect;
-
-                // Handle input (selection, pan, zoom)
-                Event ev = Event.current;
-
-                // Mouse wheel zoom when over texture
-                if (ev.type == EventType.ScrollWheel && _lastPreviewRect.Contains(ev.mousePosition))
+            EditorGUILayout.BeginHorizontal();
+            if (GUILayout.Button("Create Palette Asset (Grid)"))
+            {
+                string path = EditorUtility.SaveFilePanelInProject("Save Tile Palette", "TilePalette", "asset", "Choose location to save the created TilePalette asset");
+                if (!string.IsNullOrEmpty(path))
                 {
-                    // compute old displayPerTex
-                    float oldDisplayPerTexX = _lastPreviewRect.width / texWf;
-                    float oldDisplayPerTexY = _lastPreviewRect.height / texHf;
-                    // texture coordinate under cursor (in tex pixels)
-                    float texUnderX = (ev.mousePosition.x - _lastPreviewRect.x) / oldDisplayPerTexX;
-                    float texUnderY = (ev.mousePosition.y - _lastPreviewRect.y) / oldDisplayPerTexY;
-
-                    float wheelDelta = -ev.delta.y; // scroll up positive
-                    float zoomFactor = Mathf.Pow(1.1f, wheelDelta);
-                    float newZoom = Mathf.Clamp(_previewZoom * zoomFactor, 1f / 1024f, 1024f);
-
-                    // compute new draw dims
-                    float newDrawW = texWf * baseScale * newZoom;
-                    float newDrawH = texHf * baseScale * newZoom;
-
-                    // compute new displayPerTex
-                    float newDisplayPerTexX = newDrawW / texWf;
-                    float newDisplayPerTexY = newDrawH / texHf;
-
-                    // compute new pan so that texUnderX,texUnderY stays under cursor
-                    Vector2 newPan = _previewPan;
-                    float previewCenterX = previewRect.x + (previewRect.width - newDrawW) * 0.5f;
-                    float previewCenterY = previewRect.y + (previewRect.height - newDrawH) * 0.5f;
-
-                    newPan.x = (ev.mousePosition.x - previewCenterX) / newDisplayPerTexX - texUnderX;
-                    newPan.y = (ev.mousePosition.y - previewCenterY) / newDisplayPerTexY - texUnderY;
-
-                    _previewZoom = newZoom;
-                    _previewPan = newPan;
-                    ev.Use();
-                    Repaint();
+                    var palette = ScriptableObject.CreateInstance<TilePalette>();
+                    palette.GenerateFromGrid(_createSourceTexture, _createTileWidth, _createTileHeight, _createMargin, _createSpacing);
+                    palette.Texture = _createSourceTexture;
+                    AssetDatabase.CreateAsset(palette, path);
+                    AssetDatabase.SaveAssets();
+                    AssetDatabase.Refresh();
+                    _selectedPalette = palette;
                 }
+            }
 
-                // Start panning: middle mouse or Alt+left-drag
-                if (ev.type == EventType.MouseDown && (_lastPreviewRect.Contains(ev.mousePosition)) && (ev.button == 2 || (ev.button == 0 && ev.alt)))
+            if (GUILayout.Button("Create Palette Asset (Selection)"))
+            {
+                var selMin = Vector2.Min(_selectionStartTex, _selectionEndTex);
+                var selMax = Vector2.Max(_selectionStartTex, _selectionEndTex);
+                if (selMin == selMax)
                 {
-                    _isPanning = true;
-                    _panStartMouse = ev.mousePosition;
-                    _panStartOffset = _previewPan;
-                    ev.Use();
+                    EditorUtility.DisplayDialog("No Selection", "Drag a rectangle on the preview to select a region first.", "OK");
                 }
-
-                if (_isPanning && ev.type == EventType.MouseDrag)
+                else
                 {
-                    // delta in display pixels -> convert to texture pixels
-                    Vector2 delta = ev.mousePosition - _panStartMouse;
-                    float displayPerTexX = (_lastPreviewRect.width) / texWf;
-                    float displayPerTexY = (_lastPreviewRect.height) / texHf;
-                    _previewPan = _panStartOffset + new Vector2(delta.x / displayPerTexX, delta.y / displayPerTexY);
-                    ev.Use();
-                    Repaint();
-                }
+                    int texW = _createSourceTexture.width;
+                    int texH = _createSourceTexture.height;
 
-                if (_isPanning && ev.type == EventType.MouseUp)
-                {
-                    _isPanning = false;
-                    ev.Use();
-                }
-
-                // Selection with left mouse
-                if (ev.type == EventType.MouseDown && ev.button == 0 && !_isPanning && _lastPreviewRect.Contains(ev.mousePosition))
-                {
-                    _isPreviewSelecting = true;
-                    // initialize texture-space selection anchors
-                    float texWf2 = (float)_createSourceTexture.width;
-                    float texHf2 = (float)_createSourceTexture.height;
-                    _selectionStartTex = new Vector2(
-                        (ev.mousePosition.x - _lastPreviewRect.x) / Mathf.Max(1f, _lastPreviewRect.width) * texWf2,
-                        (ev.mousePosition.y - _lastPreviewRect.y) / Mathf.Max(1f, _lastPreviewRect.height) * texHf2
-                    );
-                    _selectionStartTex.x = Mathf.Clamp(_selectionStartTex.x, 0f, texWf2);
-                    _selectionStartTex.y = Mathf.Clamp(_selectionStartTex.y, 0f, texHf2);
-                    _selectionEndTex = _selectionStartTex;
-                    ev.Use();
-                }
-
-                if (_isPreviewSelecting && ev.type == EventType.MouseDrag)
-                {
-                    float texWf2 = (float)_createSourceTexture.width;
-                    float texHf2 = (float)_createSourceTexture.height;
-                    _selectionEndTex = new Vector2(
-                        (ev.mousePosition.x - _lastPreviewRect.x) / Mathf.Max(1f, _lastPreviewRect.width) * texWf2,
-                        (ev.mousePosition.y - _lastPreviewRect.y) / Mathf.Max(1f, _lastPreviewRect.height) * texHf2
-                    );
-                    _selectionEndTex.x = Mathf.Clamp(_selectionEndTex.x, 0f, texWf2);
-                    _selectionEndTex.y = Mathf.Clamp(_selectionEndTex.y, 0f, texHf2);
-                    ev.Use();
-                    Repaint();
-                }
-
-                if (_isPreviewSelecting && ev.type == EventType.MouseUp)
-                {
-                    float texWf2 = (float)_createSourceTexture.width;
-                    float texHf2 = (float)_createSourceTexture.height;
-                    _selectionEndTex = new Vector2(
-                        (ev.mousePosition.x - _lastPreviewRect.x) / Mathf.Max(1f, _lastPreviewRect.width) * texWf2,
-                        (ev.mousePosition.y - _lastPreviewRect.y) / Mathf.Max(1f, _lastPreviewRect.height) * texHf2
-                    );
-                    _selectionEndTex.x = Mathf.Clamp(_selectionEndTex.x, 0f, texWf2);
-                    _selectionEndTex.y = Mathf.Clamp(_selectionEndTex.y, 0f, texHf2);
-                    _isPreviewSelecting = false;
-                    ev.Use();
-                    Repaint();
-                }
-
-                // Draw selection rect if any (clip to preview area) using texture-space selection
-                if (_selectionStartTex != _selectionEndTex)
-                {
-                    // compute snapped/clamped tex-space min/max
-                    float texWf2 = (float)_createSourceTexture.width;
-                    float texHf2 = (float)_createSourceTexture.height;
-                    var sMin = Vector2.Min(_selectionStartTex, _selectionEndTex);
-                    var sMax = Vector2.Max(_selectionStartTex, _selectionEndTex);
+                    float sMinX = selMin.x;
+                    float sMinY = selMin.y;
+                    float sMaxX = selMax.x;
+                    float sMaxY = selMax.y;
 
                     if (_snapToGrid && _createTileWidth > 0 && _createTileHeight > 0)
                     {
-                        sMin.x = Mathf.Floor(sMin.x / _createTileWidth) * _createTileWidth;
-                        sMin.y = Mathf.Floor(sMin.y / _createTileHeight) * _createTileHeight;
-                        sMax.x = Mathf.Ceil(sMax.x / _createTileWidth) * _createTileWidth;
-                        sMax.y = Mathf.Ceil(sMax.y / _createTileHeight) * _createTileHeight;
+                        sMinX = Mathf.Floor(sMinX / _createTileWidth) * _createTileWidth;
+                        sMinY = Mathf.Floor(sMinY / _createTileHeight) * _createTileHeight;
+                        sMaxX = Mathf.Ceil(sMaxX / _createTileWidth) * _createTileWidth;
+                        sMaxY = Mathf.Ceil(sMaxY / _createTileHeight) * _createTileHeight;
                     }
 
-                    sMin.x = Mathf.Clamp(sMin.x, 0f, texWf2);
-                    sMin.y = Mathf.Clamp(sMin.y, 0f, texHf2);
-                    sMax.x = Mathf.Clamp(sMax.x, 0f, texWf2);
-                    sMax.y = Mathf.Clamp(sMax.y, 0f, texHf2);
+                    int regionPx = Mathf.Clamp(Mathf.RoundToInt(sMinX), 0, texW - 1);
+                    int regionPyTop = Mathf.Clamp(Mathf.RoundToInt(sMinY), 0, texH - 1);
+                    int regionWidth = Mathf.Clamp(Mathf.RoundToInt(sMaxX - sMinX), 1, texW - regionPx);
+                    int regionHeight = Mathf.Clamp(Mathf.RoundToInt(sMaxY - sMinY), 1, texH - regionPyTop);
 
-                    // convert tex-space to GUI global coords
-                    Rect selRectG = new Rect(
-                        _lastPreviewRect.x + (sMin.x / texWf2) * _lastPreviewRect.width,
-                        _lastPreviewRect.y + (sMin.y / texHf2) * _lastPreviewRect.height,
-                        ((sMax.x - sMin.x) / texWf2) * _lastPreviewRect.width,
-                        ((sMax.y - sMin.y) / texHf2) * _lastPreviewRect.height
-                    );
-
-                    // Convert to local coords inside previewRect and draw inside a clipped group
-                    Rect selLocal = new Rect(selRectG.x - previewRect.x, selRectG.y - previewRect.y, selRectG.width, selRectG.height);
-                    GUI.BeginGroup(previewRect);
-                    EditorGUI.DrawRect(selLocal, new Color(0.2f, 0.6f, 1f, 0.25f));
-                    // outline
-                    Rect outline = selLocal;
-                    EditorGUI.DrawRect(new Rect(outline.x, outline.y, outline.width, 2f), Color.cyan);
-                    EditorGUI.DrawRect(new Rect(outline.x, outline.y + outline.height - 2f, outline.width, 2f), Color.cyan);
-                    EditorGUI.DrawRect(new Rect(outline.x, outline.y, 2f, outline.height), Color.cyan);
-                    EditorGUI.DrawRect(new Rect(outline.x + outline.width - 2f, outline.y, 2f, outline.height), Color.cyan);
-                    GUI.EndGroup();
-                }
-
-                // grid overlay already drawn clipped inside the preview group earlier; do nothing here
-
-                EditorGUILayout.BeginHorizontal();
-                if (GUILayout.Button("Create Palette Asset (Grid)"))
-                {
                     string path = EditorUtility.SaveFilePanelInProject("Save Tile Palette", "TilePalette", "asset", "Choose location to save the created TilePalette asset");
                     if (!string.IsNullOrEmpty(path))
                     {
-                        var palette = ScriptableObject.CreateInstance<PaintDots.Editor.TilePalette>();
-                        palette.GenerateFromGrid(_createSourceTexture, _createTileWidth, _createTileHeight, _createMargin, _createSpacing);
+                        var palette = ScriptableObject.CreateInstance<TilePalette>();
+                        regionPx = Mathf.Clamp(regionPx, 0, texW - 1);
+                        regionPyTop = Mathf.Clamp(regionPyTop, 0, texH - 1);
+                        regionWidth = Mathf.Clamp(regionWidth, 1, texW - regionPx);
+                        regionHeight = Mathf.Clamp(regionHeight, 1, texH - regionPyTop);
+
+                        palette.GenerateFromRegion(_createSourceTexture, regionPx, regionPyTop, regionWidth, regionHeight, _createTileWidth, _createTileHeight, _createMargin, _createSpacing);
                         palette.Texture = _createSourceTexture;
-                            UnityEditor.AssetDatabase.CreateAsset(palette, path);
-                            UnityEditor.AssetDatabase.SaveAssets();
-                            UnityEditor.AssetDatabase.Refresh();
+                        AssetDatabase.CreateAsset(palette, path);
+                        AssetDatabase.SaveAssets();
+                        AssetDatabase.Refresh();
                         _selectedPalette = palette;
                     }
                 }
-
-                if (GUILayout.Button("Create Palette Asset (Selection)"))
-                {
-                    // compute selected pixel region based on last selection
-                        // use texture-space selection values
-                        var selMin = Vector2.Min(_selectionStartTex, _selectionEndTex);
-                        var selMax = Vector2.Max(_selectionStartTex, _selectionEndTex);
-                    if (selMin == selMax)
-                    {
-                        EditorUtility.DisplayDialog("No Selection", "Drag a rectangle on the preview to select a region first.", "OK");
-                    }
-                    else
-                    {
-                        // Map to texture pixel coordinates (previewRect used before)
-                        // Find the last preview rect by re-drawing a layout rect of same size
-                        Rect lastPreviewRect = GUILayoutUtility.GetLastRect();
-                        // The last previewRect is not directly accessible here; compute from available width/height approximations
-                        // As a fallback, re-use the preview size of 256 and center mapping across width
-                        Rect previewRect2 = GUILayoutUtility.GetLastRect();
-                        // Use the previously drawn previewRect's top-left: approximate by using position from GUIUtility.GUIToScreenPoint( Vector2.zero )? Simpler: recompute mapping relative to the last event positions stored earlier
-                        // Instead, compute local coordinates relative to the preview area we drew earlier by using the stored _previewSelStart/_previewSelEnd positions and the texture size.
-
-                        // Map selection points to texture UVs in [0,1] using the stored preview rect
-                        // selMin/selMax are in texture pixels already
-                        int texW = _createSourceTexture.width;
-                        int texH = _createSourceTexture.height;
-
-                        float sMinX = selMin.x;
-                        float sMinY = selMin.y;
-                        float sMaxX = selMax.x;
-                        float sMaxY = selMax.y;
-
-                        if (_snapToGrid && _createTileWidth > 0 && _createTileHeight > 0)
-                        {
-                            sMinX = Mathf.Floor(sMinX / _createTileWidth) * _createTileWidth;
-                            sMinY = Mathf.Floor(sMinY / _createTileHeight) * _createTileHeight;
-                            sMaxX = Mathf.Ceil(sMaxX / _createTileWidth) * _createTileWidth;
-                            sMaxY = Mathf.Ceil(sMaxY / _createTileHeight) * _createTileHeight;
-                        }
-
-                        int regionPx = Mathf.Clamp(Mathf.RoundToInt(sMinX), 0, texW - 1);
-                        int regionPyTop = Mathf.Clamp(Mathf.RoundToInt(sMinY), 0, texH - 1);
-                        int regionWidth = Mathf.Clamp(Mathf.RoundToInt(sMaxX - sMinX), 1, texW - regionPx);
-                        int regionHeight = Mathf.Clamp(Mathf.RoundToInt(sMaxY - sMinY), 1, texH - regionPyTop);
-
-                        // Convert v coordinates since UI y=top; regionPyTop is top-based
-                        // Create and save palette
-                        string path = EditorUtility.SaveFilePanelInProject("Save Tile Palette", "TilePalette", "asset", "Choose location to save the created TilePalette asset");
-                        if (!string.IsNullOrEmpty(path))
-                        {
-                            var palette = ScriptableObject.CreateInstance<PaintDots.Editor.TilePalette>();
-                            // regionPyTop computed from top-origin (v1), ensure values within bounds
-                            regionPx = Mathf.Clamp(regionPx, 0, texW - 1);
-                            regionPyTop = Mathf.Clamp(regionPyTop, 0, texH - 1);
-                            regionWidth = Mathf.Clamp(regionWidth, 1, texW - regionPx);
-                            regionHeight = Mathf.Clamp(regionHeight, 1, texH - regionPyTop);
-
-                            palette.GenerateFromRegion(_createSourceTexture, regionPx, regionPyTop, regionWidth, regionHeight, _createTileWidth, _createTileHeight, _createMargin, _createSpacing);
-                            palette.Texture = _createSourceTexture;
-                            AssetDatabase.CreateAsset(palette, path);
-                            AssetDatabase.SaveAssets();
-                            AssetDatabase.Refresh();
-                            _selectedPalette = palette;
-                        }
-                    }
-                }
-                EditorGUILayout.EndHorizontal();
             }
-            
+            EditorGUILayout.EndHorizontal();
+        }
+
+        private void DrawInspectorPane()
+        {
+            DrawPaintingControls();
             EditorGUILayout.Space();
-            
-            if (GUILayout.Button(_isPainting ? "Stop Painting" : "Start Painting"))
+            DrawBrushSettings();
+            EditorGUILayout.Space();
+            DrawCreatePaletteSettings();
+            EditorGUILayout.Space();
+            DrawChunkSettings();
+            EditorGUILayout.Space();
+            AutoBioChromaModule.DrawEmbedded();
+            EditorGUILayout.Space();
+            DrawInstructions();
+            DrawWorldWarning();
+        }
+
+        private void DrawPaintingControls()
+        {
+            EditorGUILayout.LabelField("Painting Tools", EditorStyles.boldLabel);
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField("Selected Tile ID", GUILayout.Width(110));
+            _selectedTileID = EditorGUILayout.IntField(_selectedTileID, GUILayout.Width(60));
+            if (GUILayout.Button("Reset", GUILayout.Width(60))) _selectedTileID = 0;
+            EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.Space();
+            if (GUILayout.Button(_isPainting ? "Stop Painting" : "Start Painting", GUILayout.Height(28)))
             {
                 _isPainting = !_isPainting;
             }
+        }
 
-            // Brush settings
-            EditorGUILayout.Space();
+        private void DrawBrushSettings()
+        {
             EditorGUILayout.LabelField("Brush", EditorStyles.boldLabel);
             _brushType = (BrushType)EditorGUILayout.EnumPopup("Brush Type", _brushType);
             _brushSize = EditorGUILayout.IntField("Size/Radius", _brushSize);
             _useAutoTile = EditorGUILayout.Toggle("Use AutoTile", _useAutoTile);
             _noiseThreshold = EditorGUILayout.Slider("Noise Threshold", _noiseThreshold, 0f, 1f);
             _noiseSeed = EditorGUILayout.IntField("Noise Seed", _noiseSeed);
+        }
 
-            EditorGUILayout.Space();
+        private void DrawCreatePaletteSettings()
+        {
+            EditorGUILayout.LabelField("Palette Extraction", EditorStyles.boldLabel);
+            UnityEngine.Object sourceObj = EditorGUILayout.ObjectField("Source Texture/Sprite", _createSourceTexture, typeof(UnityEngine.Object), false);
+            if (sourceObj != null)
+            {
+                if (sourceObj is Sprite sprite)
+                {
+                    _createSourceTexture = sprite.texture;
+                }
+                else if (sourceObj is Texture2D tex)
+                {
+                    _createSourceTexture = tex;
+                }
+                else
+                {
+                    _createSourceTexture = null;
+                }
+            }
+            else
+            {
+                _createSourceTexture = null;
+            }
+
+            _createTileWidth = EditorGUILayout.IntField("Tile Width", _createTileWidth);
+            _createTileHeight = EditorGUILayout.IntField("Tile Height", _createTileHeight);
+            _createMargin = EditorGUILayout.IntField("Margin", _createMargin);
+            _createSpacing = EditorGUILayout.IntField("Spacing", _createSpacing);
+            _snapToGrid = EditorGUILayout.Toggle("Snap Selection to Grid", _snapToGrid);
+
+            if (_createSourceTexture != null && !_createSourceTexture.isReadable)
+            {
+                EditorGUILayout.HelpBox("This texture is not Read/Write enabled. Select the texture asset in the Project window, then in the Inspector enable 'Read/Write' (Texture Import Settings > Advanced) and press Apply.", MessageType.Warning);
+            }
+
+            _showEdgeProfileOverlays = EditorGUILayout.Toggle("EdgeProfile Overlays", _showEdgeProfileOverlays);
+            if (_showEdgeProfileOverlays)
+            {
+                var picked = (EdgeProfileAsset)EditorGUILayout.ObjectField("EdgeProfile Asset", _loadedEdgeProfile, typeof(EdgeProfileAsset), false);
+                if (picked != _loadedEdgeProfile)
+                {
+                    _loadedEdgeProfile = picked;
+                }
+            }
+        }
+
+        private void DrawChunkSettings()
+        {
             EditorGUILayout.LabelField("Chunking", EditorStyles.boldLabel);
             bool useChunking = EditorPrefs.GetBool("PaintDots_UseChunking", false);
             useChunking = EditorGUILayout.Toggle("Use Chunking", useChunking);
             EditorPrefs.SetBool("PaintDots_UseChunking", useChunking);
-            // Chunk size fields
+
             int chunkX = EditorPrefs.GetInt("PaintDots_ChunkSizeX", 32);
             int chunkY = EditorPrefs.GetInt("PaintDots_ChunkSizeY", 32);
             chunkX = EditorGUILayout.IntField("Chunk Size X", chunkX);
             chunkY = EditorGUILayout.IntField("Chunk Size Y", chunkY);
             EditorPrefs.SetInt("PaintDots_ChunkSizeX", chunkX);
             EditorPrefs.SetInt("PaintDots_ChunkSizeY", chunkY);
+
             if (GUILayout.Button("Apply Chunk Settings to World"))
             {
                 if (_world == default)
@@ -677,7 +675,6 @@ namespace PaintDots.Editor
                 {
                     var em = _world.EntityManager;
                     var cfg = new ChunkConfig(useChunking, new int2(chunkX, chunkY));
-                    // Use an EntityQuery to find an existing ChunkConfig singleton entity
                     var query = em.CreateEntityQuery(ComponentType.ReadOnly<ChunkConfig>());
                     if (query.IsEmpty)
                     {
@@ -693,15 +690,19 @@ namespace PaintDots.Editor
                     Debug.Log($"Applied ChunkConfig useChunking={useChunking} size=({chunkX},{chunkY})");
                 }
             }
-            
-            EditorGUILayout.Space();
-            
-            EditorGUILayout.LabelField("Instructions:", EditorStyles.boldLabel);
+        }
+
+        private void DrawInstructions()
+        {
+            EditorGUILayout.LabelField("Instructions", EditorStyles.boldLabel);
             EditorGUILayout.LabelField("• Click 'Start Painting' to enable paint mode");
             EditorGUILayout.LabelField("• Left-click in Scene view to paint tiles");
             EditorGUILayout.LabelField("• Right-click to erase tiles");
             EditorGUILayout.LabelField("• Hold Shift for multi-tile painting");
-            
+        }
+
+        private void DrawWorldWarning()
+        {
             if (_world == default)
             {
                 EditorGUILayout.Space();
@@ -757,7 +758,7 @@ namespace PaintDots.Editor
 
         // Create AutoTile/Tile assets for any slots that have a TileTemplate-like object assigned.
         // This uses reflection to call CreateTileAssets on the assigned template and extract the generated TileBase from the returned TileChangeData list.
-        private void CreateAutoTilesForPalette(PaintDots.Editor.TilePalette palette, string paletteAssetPath)
+    private void CreateAutoTilesForPalette(TilePalette palette, string paletteAssetPath)
         {
             if (palette == null || string.IsNullOrEmpty(paletteAssetPath)) return;
 
@@ -902,7 +903,7 @@ namespace PaintDots.Editor
     /// <summary>
     /// Custom inspector for TilemapAuthoring
     /// </summary>
-    [CustomEditor(typeof(PaintDots.ECS.Authoring.TilemapAuthoring))]
+    [CustomEditor(typeof(TilemapAuthoring))]
     public sealed class TilemapAuthoringInspector : UnityEditor.Editor
     {
         public override void OnInspectorGUI()
