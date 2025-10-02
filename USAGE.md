@@ -7,7 +7,7 @@ This guide covers how to use the advanced features of PaintDots Unity ECS Tilema
 ### Basic Usage
 
 ```csharp
-using PaintDots.ECS.Utilities;
+using PaintDots.Runtime.Utilities;
 using Unity.Entities;
 using Unity.Mathematics;
 
@@ -42,7 +42,7 @@ BrushSystem.ApplyBrush(ecb, gridPosition, brush);
 ### Creating Erase Commands
 
 ```csharp
-using PaintDots.ECS.Utilities;
+using PaintDots.Runtime.Utilities;
 
 // Erase single tile
 TilemapUtilities.CreateEraseCommand(ecb, gridPosition);
@@ -59,7 +59,7 @@ TilemapUtilities.EraseCircle(ecb, centerPos, radius);
 ### Saving Tilemap State
 
 ```csharp
-using PaintDots.ECS.Systems;
+using PaintDots.Runtime.Systems;
 using Unity.Entities;
 
 // Save current tilemap to BlobAsset
@@ -114,7 +114,7 @@ entityManager.AddComponent(tileEntity, new AnimatedTile(blobAsset));
 ### Chunk Configuration
 
 ```csharp
-using PaintDots.ECS.Utilities;
+using PaintDots.Runtime.Utilities;
 
 // Convert world position to chunk coordinates
 var chunkSize = new int2(32, 32);

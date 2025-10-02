@@ -483,7 +483,7 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 04eadbb9c4c8ff54cbd8ef91a856fe71, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: PaintDots.Runtime::PaintDots.ECS.Authoring.TilemapAuthoring
+  m_EditorClassIdentifier: PaintDots.Runtime::PaintDots.Runtime.Authoring.TilemapAuthoring
   MapSize:
     x: 100
     y: 100
