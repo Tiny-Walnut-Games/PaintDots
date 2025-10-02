@@ -133,12 +133,12 @@ namespace PaintDots.Runtime
     /// <summary>
     /// Serializable tilemap state stored as BlobAsset for saving/loading
     /// </summary>
-    public struct TilemapStateAsset
+    public readonly struct TilemapStateAsset
     {
-        public BlobArray<SerializedTile> Tiles;
-        public BlobArray<SerializedTilemap> Tilemaps;
-        public float TileSize;
-        public int Version;
+        public readonly BlobArray<SerializedTile> Tiles;
+        public readonly BlobArray<SerializedTilemap> Tilemaps;
+        public readonly float TileSize;
+        public readonly int Version;
     }
 
     /// <summary>

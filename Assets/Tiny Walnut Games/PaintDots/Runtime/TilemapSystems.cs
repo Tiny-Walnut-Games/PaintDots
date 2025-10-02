@@ -1,5 +1,8 @@
+using System.Reflection;
 using Unity.Burst;
+using Unity.Burst.Intrinsics;
 using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Mathematics;
 using Unity.Transforms;
@@ -45,7 +48,10 @@ namespace PaintDots.Runtime.Systems
 
         public void OnUpdate(ref SystemState state)
         {
-            if (_paintCommandQuery.IsEmpty) return;
+            if (_paintCommandQuery.IsEmpty)
+            {
+                return;
+            }
 
             var ecb = SystemAPI.GetSingleton<BeginSimulationEntityCommandBufferSystem.Singleton>()
                 .CreateCommandBuffer(state.WorldUnmanaged);
@@ -54,76 +60,140 @@ namespace PaintDots.Runtime.Systems
                 ? SystemAPI.GetSingleton<TilemapConfig>()
                 : TilemapConfig.CreateDefault();
 
-            var existingTiles = _existingTileQuery.ToComponentDataArray<Tile>(Allocator.TempJob);
-            var existingTileEntities = _existingTileQuery.ToEntityArray(Allocator.TempJob);
-            var structureEntities = _structureQuery.ToEntityArray(Allocator.TempJob);
-            var footprintLookup = SystemAPI.GetComponentLookup<Footprint>(true);
-            var entityManager = state.EntityManager;
+            var tileCount = _existingTileQuery.CalculateEntityCount();
+            var structureCount = _structureQuery.CalculateEntityCount();
 
-            foreach (var (commandRO, commandEntity) in SystemAPI.Query<RefRO<PaintCommand>>().WithEntityAccess())
+            var tileLookup = new NativeParallelHashMap<int2, Entity>(math.max(1, tileCount), Allocator.TempJob);
+            var structureFootprints = new NativeList<Footprint>(math.max(1, structureCount), Allocator.TempJob);
+
+            var tileHandle = state.GetComponentTypeHandle<Tile>(isReadOnly: true);
+            var entityHandle = state.GetEntityTypeHandle();
+            var footprintHandle = state.GetComponentTypeHandle<Footprint>(isReadOnly: true);
+
+            var buildTileLookupJob = new BuildTileLookupJob
             {
-                var command = commandRO.ValueRO;
+                EntityHandle = entityHandle,
+                TileHandle = tileHandle,
+                TileLookup = tileLookup.AsParallelWriter()
+            }.ScheduleParallel(_existingTileQuery, state.Dependency);
 
+            var buildFootprintJob = new BuildStructureFootprintsJob
+            {
+                FootprintHandle = footprintHandle,
+                Footprints = structureFootprints.AsParallelWriter()
+            }.ScheduleParallel(_structureQuery, buildTileLookupJob);
+
+            var paintJob = new ProcessPaintCommandsJob
+            {
+                ECB = ecb.AsParallelWriter(),
+                Config = config,
+                TileLookup = tileLookup,
+                StructureFootprints = structureFootprints.AsDeferredJobArray()
+            }.ScheduleParallel(_paintCommandQuery, buildFootprintJob);
+
+            var handle = tileLookup.Dispose(paintJob);
+            handle = structureFootprints.Dispose(handle);
+            state.Dependency = handle;
+        }
+
+        [BurstCompile]
+        private struct BuildTileLookupJob : IJobChunk
+        {
+            [ReadOnly] public EntityTypeHandle EntityHandle;
+            [ReadOnly] public ComponentTypeHandle<Tile> TileHandle;
+            public NativeParallelHashMap<int2, Entity>.ParallelWriter TileLookup;
+
+            public void Execute(in ArchetypeChunk chunk, int chunkIndex, bool useEnabledMask, in v128 chunkEnabledMask)
+            {
+                var entities = chunk.GetNativeArray(EntityHandle);
+                var tiles = chunk.GetNativeArray(ref TileHandle);
+
+                for (int i = 0; i < chunk.Count; i++)
+                {
+                    TileLookup.TryAdd(tiles[i].GridPosition, entities[i]);
+                }
+            }
+        }
+
+        [BurstCompile]
+        private struct BuildStructureFootprintsJob : IJobChunk
+        {
+            [ReadOnly] public ComponentTypeHandle<Footprint> FootprintHandle;
+            public NativeList<Footprint>.ParallelWriter Footprints;
+
+            public void Execute(in ArchetypeChunk chunk, int chunkIndex, bool useEnabledMask, in v128 chunkEnabledMask)
+            {
+                var footprints = chunk.GetNativeArray(ref FootprintHandle);
+
+                for (int i = 0; i < chunk.Count; i++)
+                {
+                    Footprints.AddNoResize(footprints[i]);
+                }
+            }
+        }
+
+        [BurstCompile]
+        private partial struct ProcessPaintCommandsJob : IJobEntity
+        {
+            public EntityCommandBuffer.ParallelWriter ECB;
+            public TilemapConfig Config;
+
+            [ReadOnly] public NativeParallelHashMap<int2, Entity> TileLookup;
+            [ReadOnly] public NativeArray<Footprint> StructureFootprints;
+
+            public void Execute([EntityIndexInQuery] int sortKey, Entity commandEntity, in PaintCommand command)
+            {
                 if (command.IsMultiTile)
                 {
-                    ProcessMultiTileCommand(command, commandEntity);
+                    ProcessMultiTileCommand(sortKey, commandEntity, command);
                 }
                 else
                 {
-                    ProcessSingleTileCommand(command, commandEntity);
+                    ProcessSingleTileCommand(sortKey, commandEntity, command);
                 }
             }
 
-            existingTiles.Dispose();
-            existingTileEntities.Dispose();
-            structureEntities.Dispose();
-
-            void ProcessSingleTileCommand(in PaintCommand command, Entity commandEntity)
+            private void ProcessSingleTileCommand(int sortKey, Entity commandEntity, in PaintCommand command)
             {
-                var existingIndex = FindTileAtPosition(command.GridPosition, existingTiles);
-                if (existingIndex >= 0)
+                if (TileLookup.TryGetValue(command.GridPosition, out var existingEntity) && existingEntity != EntityConstants.InvalidEntity)
                 {
-                    var existingEntity = existingTileEntities[existingIndex];
-                    if (entityManager.Exists(existingEntity))
-                    {
-                        ecb.DestroyEntity(existingEntity);
-                    }
+                    ECB.DestroyEntity(sortKey, existingEntity);
                 }
 
-                var position = new float3(command.GridPosition.x * config.TileSize, command.GridPosition.y * config.TileSize, 0f);
-                var newTile = ecb.CreateEntity();
-                ecb.AddComponent(newTile, new Tile(command.GridPosition, command.TileID));
-                ecb.AddComponent<TilemapTag>(newTile);
-                ecb.AddComponent(newTile, LocalTransform.FromPositionRotationScale(position, quaternion.identity, 1f));
-                ecb.AddComponent(newTile, new TileRenderData(
+                var position = new float3(command.GridPosition.x * Config.TileSize, command.GridPosition.y * Config.TileSize, 0f);
+                var newTile = ECB.CreateEntity(sortKey);
+                ECB.AddComponent(sortKey, newTile, new Tile(command.GridPosition, command.TileID));
+                ECB.AddComponent<TilemapTag>(sortKey, newTile);
+                ECB.AddComponent(sortKey, newTile, LocalTransform.FromPositionRotationScale(position, quaternion.identity, 1f));
+                ECB.AddComponent(sortKey, newTile, new TileRenderData(
                     EntityConstants.InvalidEntity,
                     EntityConstants.InvalidEntity,
-                    config.DefaultTileColor,
+                    Config.DefaultTileColor,
                     command.TileID));
 
-                ecb.DestroyEntity(commandEntity);
+                ECB.DestroyEntity(sortKey, commandEntity);
             }
 
-            void ProcessMultiTileCommand(in PaintCommand command, Entity commandEntity)
+            private void ProcessMultiTileCommand(int sortKey, Entity commandEntity, in PaintCommand command)
             {
-                if (!GridOccupancyManager.IsFootprintFree(command.GridPosition, command.Size, existingTiles, structureEntities, footprintLookup))
+                if (!IsFootprintFree(command.GridPosition, command.Size))
                 {
-                    ecb.DestroyEntity(commandEntity);
+                    ECB.DestroyEntity(sortKey, commandEntity);
                     return;
                 }
 
-                var position = new float3(command.GridPosition.x * config.TileSize, command.GridPosition.y * config.TileSize, 0f);
-                var structureEntity = ecb.CreateEntity();
-                ecb.AddComponent(structureEntity, new Footprint(command.GridPosition, command.Size));
-                ecb.AddComponent<TilemapTag>(structureEntity);
-                ecb.AddComponent(structureEntity, LocalTransform.FromPositionRotationScale(position, quaternion.identity, 1f));
-                ecb.AddComponent(structureEntity, new TileRenderData(
+                var position = new float3(command.GridPosition.x * Config.TileSize, command.GridPosition.y * Config.TileSize, 0f);
+                var structureEntity = ECB.CreateEntity(sortKey);
+                ECB.AddComponent(sortKey, structureEntity, new Footprint(command.GridPosition, command.Size));
+                ECB.AddComponent<TilemapTag>(sortKey, structureEntity);
+                ECB.AddComponent(sortKey, structureEntity, LocalTransform.FromPositionRotationScale(position, quaternion.identity, 1f));
+                ECB.AddComponent(sortKey, structureEntity, new TileRenderData(
                     EntityConstants.InvalidEntity,
                     EntityConstants.InvalidEntity,
-                    config.DefaultTileColor,
+                    Config.DefaultTileColor,
                     command.TileID));
 
-                var buffer = ecb.AddBuffer<OccupiedCell>(structureEntity);
+                var buffer = ECB.AddBuffer<OccupiedCell>(sortKey, structureEntity);
                 for (int x = 0; x < command.Size.x; x++)
                 {
                     for (int y = 0; y < command.Size.y; y++)
@@ -132,17 +202,33 @@ namespace PaintDots.Runtime.Systems
                     }
                 }
 
-                ecb.DestroyEntity(commandEntity);
+                ECB.DestroyEntity(sortKey, commandEntity);
             }
 
-            static int FindTileAtPosition(int2 position, NativeArray<Tile> tiles)
+            private bool IsFootprintFree(int2 origin, int2 size)
             {
-                for (int i = 0; i < tiles.Length; i++)
+                for (int x = 0; x < size.x; x++)
                 {
-                    if (tiles[i].GridPosition.Equals(position))
-                        return i;
+                    for (int y = 0; y < size.y; y++)
+                    {
+                        var cell = origin + new int2(x, y);
+                        if (TileLookup.ContainsKey(cell))
+                        {
+                            return false;
+                        }
+                    }
                 }
-                return -1;
+
+                for (int i = 0; i < StructureFootprints.Length; i++)
+                {
+                    var other = StructureFootprints[i];
+                    if (GridOccupancyManager.FootprintsOverlap(origin, size, other.Origin, other.Size))
+                    {
+                        return false;
+                    }
+                }
+
+                return true;
             }
         }
 
@@ -180,76 +266,101 @@ namespace PaintDots.Runtime.Systems
                 ? SystemAPI.GetSingleton<AutoTileConfig>()
                 : AutoTileConfig.CreateDefault();
 
-            var allTiles = _allTilesQuery.ToComponentDataArray<Tile>(Allocator.TempJob);
+            var tileCount = math.max(1, _allTilesQuery.CalculateEntityCount());
+            var tilePositions = new NativeParallelHashSet<int2>(tileCount, Allocator.TempJob);
+            var tileHandle = state.GetComponentTypeHandle<Tile>(isReadOnly: true);
 
-            foreach (var (tile, autoTile, render) in SystemAPI.Query<RefRO<Tile>, RefRW<AutoTile>, RefRW<TileRenderData>>())
+            var buildTileSetJob = new BuildTilePositionSetJob
             {
-                var neighbors = CalculateNeighbors(tile.ValueRO.GridPosition, allTiles);
-                var newFlags = CalculateAutoTileFlags(neighbors);
+                TileHandle = tileHandle,
+                TilePositions = tilePositions.AsParallelWriter()
+            }.ScheduleParallel(_allTilesQuery, state.Dependency);
 
-                if (autoTile.ValueRO.RuleFlags == newFlags)
-                {
-                    continue;
-                }
+            var processAutoTileJob = new ProcessAutoTileJob
+            {
+                Config = config,
+                TilePositions = tilePositions
+            }.ScheduleParallel(_autoTileQuery, buildTileSetJob);
 
-                var variantIndex = GetVariantIndexFromFlags(newFlags, config);
-                autoTile.ValueRW = autoTile.ValueRO.WithRuleFlags(newFlags).WithVariantIndex(variantIndex);
-                render.ValueRW = render.ValueRO.WithSpriteIndex(variantIndex);
-            }
-
-            allTiles.Dispose();
+            state.Dependency = tilePositions.Dispose(processAutoTileJob);
         }
 
         public void OnDestroy(ref SystemState state) { }
-
-        private static byte CalculateNeighbors(int2 position, NativeArray<Tile> allTiles)
-        {
-            byte neighbors = 0;
-
-            for (int x = -1; x <= 1; x++)
-            {
-                for (int y = -1; y <= 1; y++)
-                {
-                    if (x == 0 && y == 0)
-                    {
-                        continue;
-                    }
-
-                    var checkPos = position + new int2(x, y);
-                    if (HasTileAtPosition(checkPos, allTiles))
-                    {
-                        var bitIndex = (y + 1) * 3 + (x + 1);
-                        if (bitIndex > 4)
-                        {
-                            bitIndex--;
-                        }
-
-                        neighbors |= (byte)(1 << bitIndex);
-                    }
-                }
-            }
-
-            return neighbors;
-        }
-
-        private static bool HasTileAtPosition(int2 position, NativeArray<Tile> tiles)
-        {
-            for (int i = 0; i < tiles.Length; i++)
-            {
-                if (tiles[i].GridPosition.Equals(position))
-                {
-                    return true;
-                }
-            }
-
-            return false;
-        }
 
         private static byte CalculateAutoTileFlags(byte neighbors) => neighbors;
 
         private static int GetVariantIndexFromFlags(byte flags, AutoTileConfig config)
         {
             return config.RulesetSize == 0 ? 0 : flags % config.RulesetSize;
+        }
+
+        [BurstCompile]
+        private struct BuildTilePositionSetJob : IJobChunk
+        {
+            [ReadOnly] public ComponentTypeHandle<Tile> TileHandle;
+            public NativeParallelHashSet<int2>.ParallelWriter TilePositions;
+
+            public void Execute(in ArchetypeChunk chunk, int chunkIndex, bool useEnabledMask, in v128 chunkEnabledMask)
+            {
+                var tiles = chunk.GetNativeArray(ref TileHandle);
+
+                for (int i = 0; i < chunk.Count; i++)
+                {
+                    TilePositions.Add(tiles[i].GridPosition);
+                }
+            }
+        }
+
+        [BurstCompile]
+        private partial struct ProcessAutoTileJob : IJobEntity
+        {
+            public AutoTileConfig Config;
+            [ReadOnly] public NativeParallelHashSet<int2> TilePositions;
+
+            public void Execute(ref AutoTile autoTile, ref TileRenderData render, in Tile tile)
+            {
+                var neighborMask = CalculateNeighborMask(tile.GridPosition);
+                var newFlags = CalculateAutoTileFlags(neighborMask);
+
+                if (autoTile.RuleFlags == newFlags)
+                {
+                    return;
+                }
+
+                var variantIndex = GetVariantIndexFromFlags(newFlags, Config);
+                autoTile = autoTile.WithRuleFlags(newFlags).WithVariantIndex(variantIndex);
+                render = render.WithSpriteIndex(variantIndex);
+            }
+
+            private byte CalculateNeighborMask(int2 position)
+            {
+                byte mask = 0;
+
+                for (int y = -1; y <= 1; y++)
+                {
+                    for (int x = -1; x <= 1; x++)
+                    {
+                        if (x == 0 && y == 0)
+                        {
+                            continue;
+                        }
+
+                        var checkPos = position + new int2(x, y);
+                        if (TilePositions.Contains(checkPos))
+                        {
+                            var bitIndex = (y + 1) * 3 + (x + 1);
+                            if (bitIndex > 4)
+                            {
+                                bitIndex--;
+                            }
+
+                            mask |= (byte)(1 << bitIndex);
+                        }
+                    }
+                }
+
+                return mask;
+            }
         }
     }
 
@@ -368,45 +479,60 @@ namespace PaintDots.Runtime.Systems
             using var tiles = tileQuery.ToComponentDataArray<Tile>(Allocator.Temp);
             using var renderData = tileQuery.ToComponentDataArray<TileRenderData>(Allocator.Temp);
 
-            // Serialize tiles
-            var tilesArray = builder.Allocate(ref stateAsset.Tiles, tiles.Length);
-            for (int i = 0; i < tiles.Length; i++)
+            unsafe
             {
-                var tile = tiles[i];
-                var render = renderData[i];
-                
-                bool isAutoTile = entityManager.HasComponent<AutoTile>(tileEntities[i]);
-                
-                tilesArray[i] = new SerializedTile(
-                    tile.GridPosition,
-                    tile.TileID,
-                    render.SpriteIndex,
-                    render.Color,
-                    isAutoTile
+                var rootPtr = UnsafeUtility.AddressOf(ref stateAsset);
+                var tilesOffset = UnsafeUtility.GetFieldOffset(typeof(TilemapStateAsset).GetField(nameof(TilemapStateAsset.Tiles))!);
+                var tilemapsOffset = UnsafeUtility.GetFieldOffset(typeof(TilemapStateAsset).GetField(nameof(TilemapStateAsset.Tilemaps))!);
+                var tileSizeOffset = UnsafeUtility.GetFieldOffset(typeof(TilemapStateAsset).GetField(nameof(TilemapStateAsset.TileSize))!);
+                var versionOffset = UnsafeUtility.GetFieldOffset(typeof(TilemapStateAsset).GetField(nameof(TilemapStateAsset.Version))!);
+
+                // Serialize tiles
+                var tilesArray = builder.Allocate(
+                    ref UnsafeUtility.AsRef<BlobArray<SerializedTile>>((byte*)rootPtr + tilesOffset),
+                    tiles.Length);
+
+                for (int i = 0; i < tiles.Length; i++)
+                {
+                    var tile = tiles[i];
+                    var render = renderData[i];
+
+                    bool isAutoTile = entityManager.HasComponent<AutoTile>(tileEntities[i]);
+
+                    tilesArray[i] = new SerializedTile(
+                        tile.GridPosition,
+                        tile.TileID,
+                        render.SpriteIndex,
+                        render.Color,
+                        isAutoTile
+                    );
+                }
+
+                // Calculate bounds and create tilemap metadata
+                var minBounds = new int2(int.MaxValue, int.MaxValue);
+                var maxBounds = new int2(int.MinValue, int.MinValue);
+
+                for (int i = 0; i < tiles.Length; i++)
+                {
+                    var pos = tiles[i].GridPosition;
+                    minBounds = math.min(minBounds, pos);
+                    maxBounds = math.max(maxBounds, pos);
+                }
+
+                var tilemapsArray = builder.Allocate(
+                    ref UnsafeUtility.AsRef<BlobArray<SerializedTilemap>>((byte*)rootPtr + tilemapsOffset),
+                    1);
+
+                tilemapsArray[0] = new SerializedTilemap(
+                    new int2(32, 32), // Default chunk size
+                    minBounds,
+                    maxBounds,
+                    tiles.Length
                 );
+
+                UnsafeUtility.AsRef<float>((byte*)rootPtr + tileSizeOffset) = 1.0f; // Default tile size
+                UnsafeUtility.AsRef<int>((byte*)rootPtr + versionOffset) = 1;
             }
-
-            // Calculate bounds and create tilemap metadata
-            var minBounds = new int2(int.MaxValue, int.MaxValue);
-            var maxBounds = new int2(int.MinValue, int.MinValue);
-            
-            for (int i = 0; i < tiles.Length; i++)
-            {
-                var pos = tiles[i].GridPosition;
-                minBounds = math.min(minBounds, pos);
-                maxBounds = math.max(maxBounds, pos);
-            }
-
-            var tilemapsArray = builder.Allocate(ref stateAsset.Tilemaps, 1);
-            tilemapsArray[0] = new SerializedTilemap(
-                new int2(32, 32), // Default chunk size
-                minBounds,
-                maxBounds,
-                tiles.Length
-            );
-
-            stateAsset.TileSize = 1.0f; // Default tile size
-            stateAsset.Version = 1;
 
             return builder.CreateBlobAssetReference<TilemapStateAsset>(allocator);
         }

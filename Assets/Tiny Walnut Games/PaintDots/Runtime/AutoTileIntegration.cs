@@ -1,4 +1,6 @@
 using Unity.Collections;
+using System.Reflection;
+using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Mathematics;
 using UnityEngine;
@@ -26,10 +28,10 @@ namespace PaintDots.Runtime.AutoTileIntegration
     /// <summary>
     /// Blob asset containing AutoTile rule data
     /// </summary>
-    public struct AutoTileRuleSet
+    public readonly struct AutoTileRuleSet
     {
-        public BlobArray<AutoTileRule> Rules;
-        public BlobArray<int> SpriteIndices;
+        public readonly BlobArray<AutoTileRule> Rules;
+        public readonly BlobArray<int> SpriteIndices;
     }
 
     /// <summary>
@@ -110,23 +112,37 @@ namespace PaintDots.Runtime.AutoTileIntegration
                     // Create BlobAsset for AutoTile rules
                     using var builder = new BlobBuilder(Allocator.Temp);
                     ref var ruleSet = ref builder.ConstructRoot<AutoTileRuleSet>();
-                    
+
                     // Convert Unity AutoTile rules to ECS format
                     const int ruleCount = 16;
-                    var rulesArray = builder.Allocate(ref ruleSet.Rules, ruleCount);
-                    var spritesArray = builder.Allocate(ref ruleSet.SpriteIndices, authoring.TileSprites.Length);
-                    
-                    // Fill with data (in production, parse from actual AutoTile asset)
-                    for (int i = 0; i < rulesArray.Length; i++)
+
+                    unsafe
                     {
-                        rulesArray[i] = new AutoTileRule((byte)i, i % authoring.TileSprites.Length, AutoTileRuleOutput.Single);
+                        var rootPtr = UnsafeUtility.AddressOf(ref ruleSet);
+                        var rulesOffset = UnsafeUtility.GetFieldOffset(typeof(AutoTileRuleSet).GetField(nameof(AutoTileRuleSet.Rules))!);
+                        var spritesOffset = UnsafeUtility.GetFieldOffset(typeof(AutoTileRuleSet).GetField(nameof(AutoTileRuleSet.SpriteIndices))!);
+
+                        var rulesArray = builder.Allocate(
+                            ref UnsafeUtility.AsRef<BlobArray<AutoTileRule>>((byte*)rootPtr + rulesOffset),
+                            ruleCount);
+
+                        var spritesArray = builder.Allocate(
+                            ref UnsafeUtility.AsRef<BlobArray<int>>((byte*)rootPtr + spritesOffset),
+                            authoring.TileSprites.Length);
+
+                        // ⁉ Fill with data (in production, parse from actual AutoTile asset)
+                        for (int i = 0; i < rulesArray.Length; i++)
+                        {
+                            rulesArray[i] = new AutoTileRule((byte)i, i % authoring.TileSprites.Length, AutoTileRuleOutput.Single);
+                        }
+
+                        for (int i = 0; i < spritesArray.Length; i++)
+                        {
+                            spritesArray[i] = i;
+                        }
                     }
-                    
-                    for (int i = 0; i < spritesArray.Length; i++)
-                    {
-                        spritesArray[i] = i;
-                    }
-                    
+
+                    // ⁉ Fill with data (in production, parse from actual AutoTile asset)
                     var blobAsset = builder.CreateBlobAssetReference<AutoTileRuleSet>(Allocator.Persistent);
                     
                     AddComponent(entity, new AutoTileAsset(blobAsset, Entity.Null));
