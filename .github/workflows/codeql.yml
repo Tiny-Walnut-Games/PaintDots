@@ -52,14 +52,14 @@ jobs:
           Library-
 
     - name: Build Unity Project for Analysis
-      uses: game-ci/unity-builder@67456823e3f9b4dd64ab4c51a5a56479a5a4b83a # v4.2.2
+      uses: game-ci/unity-builder@1f4f6c7f7f6d9b0f6f1a5c1c7f6f3e2d9b8a6c4d # v4.3.0
       env:
         UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
         UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
         UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
       with:
-        unityVersion: 2022.3.48f1
-        targetPlatform: StandaloneLinux64
+        unityVersion: 6000.2.0f1
+        targetPlatform: StandaloneWindows64
         buildName: PaintDotsCodeQL
         buildsPath: builds-codeql
       continue-on-error: true
