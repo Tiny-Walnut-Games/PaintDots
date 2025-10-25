@@ -1,3 +1,6 @@
+using System;
+using System.Collections;
+using System.Collections.Generic;
 using Unity.Collections;
 using System.Reflection;
 using Unity.Collections.LowLevel.Unsafe;
@@ -103,50 +106,231 @@ namespace PaintDots.Runtime.AutoTileIntegration
 
         private sealed class Baker : Baker<AutoTileAssetAuthoring>
         {
+            private static readonly int RuleSetRulesOffset = UnsafeUtility.GetFieldOffset(typeof(AutoTileRuleSet).GetField(nameof(AutoTileRuleSet.Rules))!);
+            private static readonly int RuleSetSpritesOffset = UnsafeUtility.GetFieldOffset(typeof(AutoTileRuleSet).GetField(nameof(AutoTileRuleSet.SpriteIndices))!);
+
             public override void Bake(AutoTileAssetAuthoring authoring)
             {
                 var entity = GetEntity(TransformUsageFlags.None);
                 
-                if (authoring.AutoTileScriptableObject != default)
+                if (authoring.AutoTileScriptableObject == default)
                 {
-                    // Create BlobAsset for AutoTile rules
-                    using var builder = new BlobBuilder(Allocator.Temp);
-                    ref var ruleSet = ref builder.ConstructRoot<AutoTileRuleSet>();
+                    return;
+                }
 
-                    // Convert Unity AutoTile rules to ECS format
-                    const int ruleCount = 16;
+                var assetType = authoring.AutoTileScriptableObject.GetType();
+                if (!IsRuleTileType(assetType))
+                {
+                    Debug.LogError($"AutoTileAssetAuthoring requires a RuleTile-derived asset, but received {assetType.Name}", authoring);
+                    return;
+                }
 
-                    unsafe
+                var convertedRules = new List<AutoTileRule>();
+                var spriteLookup = new Dictionary<Sprite, int>(authoring.TileSprites?.Length ?? 0);
+                var spriteInstanceIds = new List<int>(authoring.TileSprites?.Length ?? 0);
+
+                int RegisterSprite(Sprite sprite)
+                {
+                    if (sprite == null)
                     {
-                        var rootPtr = UnsafeUtility.AddressOf(ref ruleSet);
-                        var rulesOffset = UnsafeUtility.GetFieldOffset(typeof(AutoTileRuleSet).GetField(nameof(AutoTileRuleSet.Rules))!);
-                        var spritesOffset = UnsafeUtility.GetFieldOffset(typeof(AutoTileRuleSet).GetField(nameof(AutoTileRuleSet.SpriteIndices))!);
-
-                        var rulesArray = builder.Allocate(
-                            ref UnsafeUtility.AsRef<BlobArray<AutoTileRule>>((byte*)rootPtr + rulesOffset),
-                            ruleCount);
-
-                        var spritesArray = builder.Allocate(
-                            ref UnsafeUtility.AsRef<BlobArray<int>>((byte*)rootPtr + spritesOffset),
-                            authoring.TileSprites.Length);
-
-                        // ⁉ Fill with data (in production, parse from actual AutoTile asset)
-                        for (int i = 0; i < rulesArray.Length; i++)
-                        {
-                            rulesArray[i] = new AutoTileRule((byte)i, i % authoring.TileSprites.Length, AutoTileRuleOutput.Single);
-                        }
-
-                        for (int i = 0; i < spritesArray.Length; i++)
-                        {
-                            spritesArray[i] = i;
-                        }
+                        return -1;
                     }
 
-                    // ⁉ Fill with data (in production, parse from actual AutoTile asset)
-                    var blobAsset = builder.CreateBlobAssetReference<AutoTileRuleSet>(Allocator.Persistent);
-                    
-                    AddComponent(entity, new AutoTileAsset(blobAsset, Entity.Null));
+                    if (spriteLookup.TryGetValue(sprite, out var existingIndex))
+                    {
+                        return existingIndex;
+                    }
+
+                    var newIndex = spriteInstanceIds.Count;
+                    spriteLookup.Add(sprite, newIndex);
+                    spriteInstanceIds.Add(sprite.GetInstanceID());
+                    return newIndex;
                 }
+
+                if (authoring.TileSprites != null)
+                {
+                    for (int i = 0; i < authoring.TileSprites.Length; i++)
+                    {
+                        RegisterSprite(authoring.TileSprites[i]);
+                    }
+                }
+
+                var binding = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+                var defaultSprite = assetType.GetField("m_DefaultSprite", binding)?.GetValue(authoring.AutoTileScriptableObject) as Sprite;
+                var defaultSpriteIndex = RegisterSprite(defaultSprite);
+
+                var tilingRulesObject = assetType.GetField("m_TilingRules", binding)?.GetValue(authoring.AutoTileScriptableObject);
+                if (tilingRulesObject is IEnumerable tilingRules)
+                {
+                    foreach (var tilingRule in tilingRules)
+                    {
+                        if (tilingRule == null)
+                        {
+                            continue;
+                        }
+
+                        var ruleType = tilingRule.GetType();
+                        IDictionary neighbors = null;
+                        if (ruleType.GetField("m_Neighbors", binding)?.GetValue(tilingRule) is IDictionary neighborDictionary)
+                        {
+                            neighbors = neighborDictionary;
+                        }
+
+                        var neighborMask = BuildNeighborMask(neighbors);
+                        var outputValue = ruleType.GetField("m_Output", binding)?.GetValue(tilingRule);
+                        var outputType = ConvertOutput(outputValue);
+
+                        var spriteIndex = defaultSpriteIndex;
+                        if (ruleType.GetField("m_Sprites", binding)?.GetValue(tilingRule) is Array spriteArray)
+                        {
+                            for (int i = 0; i < spriteArray.Length; i++)
+                            {
+                                if (spriteArray.GetValue(i) is Sprite sprite && sprite != null)
+                                {
+                                    var resolved = RegisterSprite(sprite);
+                                    if (i == 0 && resolved >= 0)
+                                    {
+                                        spriteIndex = resolved;
+                                    }
+                                }
+                            }
+                        }
+
+                        if (spriteIndex < 0)
+                        {
+                            spriteIndex = spriteInstanceIds.Count > 0 ? 0 : -1;
+                        }
+
+                        convertedRules.Add(new AutoTileRule(neighborMask, spriteIndex < 0 ? 0 : spriteIndex, outputType));
+                    }
+                }
+
+                if (convertedRules.Count == 0)
+                {
+                    convertedRules.Add(new AutoTileRule(0, defaultSpriteIndex >= 0 ? defaultSpriteIndex : 0, AutoTileRuleOutput.Single));
+                }
+
+                if (spriteInstanceIds.Count == 0)
+                {
+                    spriteInstanceIds.Add(0);
+                    if (defaultSpriteIndex < 0)
+                    {
+                        defaultSpriteIndex = 0;
+                    }
+                }
+
+                using var builder = new BlobBuilder(Allocator.Temp);
+                ref var ruleSet = ref builder.ConstructRoot<AutoTileRuleSet>();
+
+                unsafe
+                {
+                    var rootPtr = UnsafeUtility.AddressOf(ref ruleSet);
+                    var rulesArray = builder.Allocate(
+                        ref UnsafeUtility.AsRef<BlobArray<AutoTileRule>>((byte*)rootPtr + RuleSetRulesOffset),
+                        convertedRules.Count);
+
+                    for (int i = 0; i < convertedRules.Count; i++)
+                    {
+                        rulesArray[i] = convertedRules[i];
+                    }
+
+                    var spritesArray = builder.Allocate(
+                        ref UnsafeUtility.AsRef<BlobArray<int>>((byte*)rootPtr + RuleSetSpritesOffset),
+                        spriteInstanceIds.Count);
+
+                    for (int i = 0; i < spriteInstanceIds.Count; i++)
+                    {
+                        spritesArray[i] = spriteInstanceIds[i];
+                    }
+                }
+
+                var blobAsset = builder.CreateBlobAssetReference<AutoTileRuleSet>(Allocator.Persistent);
+                var resolvedDefaultIndex = defaultSpriteIndex >= 0 ? defaultSpriteIndex : 0;
+
+                AddComponent(entity, new AutoTileAsset(blobAsset, Entity.Null, resolvedDefaultIndex));
+            }
+
+            private static bool IsRuleTileType(Type type)
+            {
+                if (type == null)
+                {
+                    return false;
+                }
+
+                while (type != null)
+                {
+                    if (type.FullName == "UnityEngine.Tilemaps.RuleTile")
+                    {
+                        return true;
+                    }
+
+                    type = type.BaseType;
+                }
+
+                return false;
+            }
+
+            private static byte BuildNeighborMask(IDictionary neighbors)
+            {
+                if (neighbors == null)
+                {
+                    return 0;
+                }
+
+                byte mask = 0;
+
+                foreach (DictionaryEntry entry in neighbors)
+                {
+                    if (entry.Key is not Vector3Int offset || offset == Vector3Int.zero)
+                    {
+                        continue;
+                    }
+
+                    var bitIndex = GetNeighborBit(offset.x, offset.y);
+                    if (bitIndex < 0)
+                    {
+                        continue;
+                    }
+
+                    var neighborName = entry.Value != null
+                        ? Enum.GetName(entry.Value.GetType(), entry.Value)
+                        : null;
+
+                    if (neighborName == "This")
+                    {
+                        mask |= (byte)(1 << bitIndex);
+                    }
+                }
+
+                return mask;
+            }
+
+            private static AutoTileRuleOutput ConvertOutput(object outputValue)
+            {
+                if (outputValue == null)
+                {
+                    return AutoTileRuleOutput.Single;
+                }
+
+                var name = Enum.GetName(outputValue.GetType(), outputValue);
+                return name switch
+                {
+                    "Animation" => AutoTileRuleOutput.Animation,
+                    "Random" => AutoTileRuleOutput.Random,
+                    "Fixed" => AutoTileRuleOutput.Fixed,
+                    _ => AutoTileRuleOutput.Single
+                };
+            }
+
+            private static int GetNeighborBit(int x, int y)
+            {
+                var index = (y + 1) * 3 + (x + 1);
+                if (index > 4)
+                {
+                    index--;
+                }
+
+                return index is < 0 or > 7 ? -1 : index;
             }
         }
     }

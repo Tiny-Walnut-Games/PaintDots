@@ -452,6 +452,11 @@ namespace PaintDots.Runtime.Systems
     [UpdateInGroup(typeof(SimulationSystemGroup))]
     public partial struct TilemapSerializationSystem : ISystem
     {
+        private static readonly int TilemapStateTilesOffset = UnsafeUtility.GetFieldOffset(typeof(TilemapStateAsset).GetField(nameof(TilemapStateAsset.Tiles))!);
+        private static readonly int TilemapStateTilemapsOffset = UnsafeUtility.GetFieldOffset(typeof(TilemapStateAsset).GetField(nameof(TilemapStateAsset.Tilemaps))!);
+        private static readonly int TilemapStateTileSizeOffset = UnsafeUtility.GetFieldOffset(typeof(TilemapStateAsset).GetField(nameof(TilemapStateAsset.TileSize))!);
+        private static readonly int TilemapStateVersionOffset = UnsafeUtility.GetFieldOffset(typeof(TilemapStateAsset).GetField(nameof(TilemapStateAsset.Version))!);
+
         public void OnCreate(ref SystemState state) 
         {
             // Require tilemap config to exist
@@ -482,14 +487,10 @@ namespace PaintDots.Runtime.Systems
             unsafe
             {
                 var rootPtr = UnsafeUtility.AddressOf(ref stateAsset);
-                var tilesOffset = UnsafeUtility.GetFieldOffset(typeof(TilemapStateAsset).GetField(nameof(TilemapStateAsset.Tiles))!);
-                var tilemapsOffset = UnsafeUtility.GetFieldOffset(typeof(TilemapStateAsset).GetField(nameof(TilemapStateAsset.Tilemaps))!);
-                var tileSizeOffset = UnsafeUtility.GetFieldOffset(typeof(TilemapStateAsset).GetField(nameof(TilemapStateAsset.TileSize))!);
-                var versionOffset = UnsafeUtility.GetFieldOffset(typeof(TilemapStateAsset).GetField(nameof(TilemapStateAsset.Version))!);
 
                 // Serialize tiles
                 var tilesArray = builder.Allocate(
-                    ref UnsafeUtility.AsRef<BlobArray<SerializedTile>>((byte*)rootPtr + tilesOffset),
+                    ref UnsafeUtility.AsRef<BlobArray<SerializedTile>>((byte*)rootPtr + TilemapStateTilesOffset),
                     tiles.Length);
 
                 for (int i = 0; i < tiles.Length; i++)
@@ -520,7 +521,7 @@ namespace PaintDots.Runtime.Systems
                 }
 
                 var tilemapsArray = builder.Allocate(
-                    ref UnsafeUtility.AsRef<BlobArray<SerializedTilemap>>((byte*)rootPtr + tilemapsOffset),
+                    ref UnsafeUtility.AsRef<BlobArray<SerializedTilemap>>((byte*)rootPtr + TilemapStateTilemapsOffset),
                     1);
 
                 tilemapsArray[0] = new SerializedTilemap(
@@ -530,8 +531,8 @@ namespace PaintDots.Runtime.Systems
                     tiles.Length
                 );
 
-                UnsafeUtility.AsRef<float>((byte*)rootPtr + tileSizeOffset) = 1.0f; // Default tile size
-                UnsafeUtility.AsRef<int>((byte*)rootPtr + versionOffset) = 1;
+                UnsafeUtility.AsRef<float>((byte*)rootPtr + TilemapStateTileSizeOffset) = 1.0f; // Default tile size
+                UnsafeUtility.AsRef<int>((byte*)rootPtr + TilemapStateVersionOffset) = 1;
             }
 
             return builder.CreateBlobAssetReference<TilemapStateAsset>(allocator);
