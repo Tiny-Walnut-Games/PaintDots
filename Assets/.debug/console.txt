@@ -1,0 +1,13 @@
+Assets\Tiny Walnut Games\PaintDots\Tests\Editor\PaletteBindingBakeUtilityTests.cs(43,63): error CS0246: The type or namespace name 'EdgeProfileAsset' could not be found (are you missing a using directive or an assembly reference?)
+
+Assets\Tiny Walnut Games\PaintDots\Tests\Editor\PaletteBindingBakeUtilityTests.cs(44,44): error CS0246: The type or namespace name 'EdgeProfileEntry' could not be found (are you missing a using directive or an assembly reference?)
+
+Assets\Tiny Walnut Games\PaintDots\Tests\Editor\PaletteBindingBakeUtilityTests.cs(46,21): error CS0246: The type or namespace name 'EdgeProfileEntry' could not be found (are you missing a using directive or an assembly reference?)
+
+Assets\Tiny Walnut Games\PaintDots\Tests\Editor\PaletteBindingBakeUtilityTests.cs(47,21): error CS0246: The type or namespace name 'EdgeProfileEntry' could not be found (are you missing a using directive or an assembly reference?)
+
+Assets\Tiny Walnut Games\PaintDots\Tests\Editor\PaletteBindingBakeUtilityTests.cs(48,21): error CS0246: The type or namespace name 'EdgeProfileEntry' could not be found (are you missing a using directive or an assembly reference?)
+
+Assets\Tiny Walnut Games\PaintDots\Tests\Editor\PaletteBindingBakeUtilityTests.cs(63,27): error CS0012: The type 'PaletteBindingAsset' is defined in an assembly that is not referenced. You must add a reference to assembly 'PaintDots.Runtime, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null'.
+
+Assets\Tiny Walnut Games\PaintDots\Tests\Editor\PaletteBindingBakeUtilityTests.cs(73,29): error CS0012: The type 'PaletteBindingAuthoring' is defined in an assembly that is not referenced. You must add a reference to assembly 'PaintDots.Runtime, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null'.

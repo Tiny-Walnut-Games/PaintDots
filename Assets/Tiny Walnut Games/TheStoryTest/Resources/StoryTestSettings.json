@@ -1,0 +1,30 @@
+{
+    "projectName": "YourProjectName",
+    "menuPath": "Tiny Walnut Games/The Story Test/",
+    "assemblyFilters": [
+        "PaintDots"
+    ],
+    "includeUnityAssemblies": false,
+    "validateOnStart": false,
+    "strictMode": false,
+    "exportPath": ".debug/storytest_report.txt",
+    "conceptualValidation": {
+        "enableConceptTests": true,
+        "autoDetectEnvironment": true,
+        "validationTiers": {
+            "universal": true,
+            "unityAware": true,
+            "projectSpecific": false
+        },
+        "environmentCapabilities": {
+            "hasUnityEngine": false,
+            "hasDOTS": false,
+            "hasBurst": false,
+            "hasEntities": false,
+            "canInstantiateComponents": false
+        },
+        "customComponentTypes": [],
+        "enumValidationPatterns": [],
+        "fallbackMode": "ilAnalysis"
+    }
+}

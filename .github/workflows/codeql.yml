@@ -26,7 +26,7 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
       with:
         fetch-depth: 0
         lfs: false
@@ -38,12 +38,12 @@ jobs:
         queries: security-extended,security-and-quality
 
     - name: Setup .NET
-      uses: actions/setup-dotnet@d4c94342e560b34958eacfc5d055d21461ed1c5d # v5.0.0
+      uses: actions/setup-dotnet@6bd8b7f7774af54e05809fcc5431931b3eb1ddee # v4.0.1
       with:
         dotnet-version: '8.0.x'
 
     - name: Cache Unity Library
-      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      uses: actions/cache@0c45773b623bea8c8e75f6c82b208c3cf94ea4f9 # v4.0.2
       with:
         path: Library
         key: Library-CodeQL-${{ hashFiles('Assets/**', 'Packages/**', 'ProjectSettings/**') }}
@@ -52,14 +52,14 @@ jobs:
           Library-
 
     - name: Build Unity Project for Analysis
-      uses: game-ci/unity-builder@67456823e3f9b4dd64ab4c51a5a56479a5a4b83a # v4.2.2
+      uses: game-ci/unity-builder@1f4f6c7f7f6d9b0f6f1a5c1c7f6f3e2d9b8a6c4d # v4.3.0
       env:
         UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
         UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
         UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
       with:
-        unityVersion: 2022.3.48f1
-        targetPlatform: StandaloneLinux64
+        unityVersion: 6000.2.0f1
+        targetPlatform: StandaloneWindows64
         buildName: PaintDotsCodeQL
         buildsPath: builds-codeql
       continue-on-error: true

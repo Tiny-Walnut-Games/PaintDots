@@ -1,0 +1,45 @@
+THE STORY-TEST FRAMEWORK STRENGTHENING VALIDATION REPORT
+==================================================
+
+Generated: 2025-10-04 10:43:30
+Unity Version: 6000.2.6f2
+Target Platform: StandaloneWindows64
+
+STORY INTEGRITY ANALYSIS
+-------------------------
+Status: PASSED
+No story integrity violations found.
+
+ASSEMBLY ANALYSIS
+-----------------
+Assembly: PaintDots.Editor, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null
+Types: 15
+Location: E:\Tiny_Walnut_Games\PaintDots\Library\ScriptAssemblies\PaintDots.Editor.dll
+
+Assembly: PaintDots.Runtime, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null
+Types: 159
+Location: E:\Tiny_Walnut_Games\PaintDots\Library\ScriptAssemblies\PaintDots.Runtime.dll
+
+PROJECT STRUCTURE
+-----------------
+Folder Structure:
+  Assets\.debug
+  Assets\samvieten
+  Assets\SceneDependencyCache
+  Assets\Scenes
+  Assets\Settings
+  Assets\Tiny Walnut Games
+  Assets\samvieten\Documentation
+  Assets\samvieten\Scenes
+  Assets\samvieten\tilemap
+  Assets\samvieten\tiles
+  Assets\Scenes\SampleScene
+  Assets\Settings\Scenes
+  Assets\Tiny Walnut Games\PaintDots
+  Assets\Tiny Walnut Games\TheStoryTest
+  Assets\Tiny Walnut Games\PaintDots\Editor
+  Assets\Tiny Walnut Games\PaintDots\Local Issues
+  Assets\Tiny Walnut Games\PaintDots\Runtime
+  Assets\Tiny Walnut Games\TheStoryTest\Resources
+  Assets\Tiny Walnut Games\PaintDots\Editor\CopilotRules
+  Assets\Tiny Walnut Games\PaintDots\Runtime\ABCs

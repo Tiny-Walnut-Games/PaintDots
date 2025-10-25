@@ -5,8 +5,9 @@ This guide covers how to use the advanced features of PaintDots Unity ECS Tilema
 ## 🎨 Brush System
 
 ### Basic Usage
+
 ```csharp
-using PaintDots.ECS.Utilities;
+using PaintDots.Runtime.Utilities;
 using Unity.Entities;
 using Unity.Mathematics;
 
@@ -26,6 +27,7 @@ BrushSystem.ApplyBrush(ecb, gridPosition, brush);
 ```
 
 ### Available Brush Types
+
 - `BrushType.Single` - Paint single tile
 - `BrushType.Square3x3` - 3x3 square pattern
 - `BrushType.Square5x5` - 5x5 square pattern  
@@ -38,8 +40,9 @@ BrushSystem.ApplyBrush(ecb, gridPosition, brush);
 ## 🧹 Eraser System
 
 ### Creating Erase Commands
+
 ```csharp
-using PaintDots.ECS.Utilities;
+using PaintDots.Runtime.Utilities;
 
 // Erase single tile
 TilemapUtilities.CreateEraseCommand(ecb, gridPosition);
@@ -54,8 +57,9 @@ TilemapUtilities.EraseCircle(ecb, centerPos, radius);
 ## 💾 Serialization System
 
 ### Saving Tilemap State
+
 ```csharp
-using PaintDots.ECS.Systems;
+using PaintDots.Runtime.Systems;
 using Unity.Entities;
 
 // Save current tilemap to BlobAsset
@@ -70,6 +74,7 @@ entityManager.AddComponent(entity, new TilemapStateComponent(stateAsset));
 ```
 
 ### Loading Tilemap State
+
 ```csharp
 // Load tilemap from BlobAsset
 var stateComponent = entityManager.GetComponent<TilemapStateComponent>(entity);
@@ -79,6 +84,7 @@ TilemapSerializationSystem.DeserializeTilemap(entityManager, stateComponent.Stat
 ## 🎬 Animated Tiles
 
 ### Creating Animated Tiles
+
 ```csharp
 using Unity.Entities;
 using Unity.Collections;
@@ -106,8 +112,9 @@ entityManager.AddComponent(tileEntity, new AnimatedTile(blobAsset));
 ## 🗺️ Chunked Tilemaps
 
 ### Chunk Configuration
+
 ```csharp
-using PaintDots.ECS.Utilities;
+using PaintDots.Runtime.Utilities;
 
 // Convert world position to chunk coordinates
 var chunkSize = new int2(32, 32);
@@ -118,7 +125,9 @@ var tileEntity = ChunkUtilities.CreateChunkedTile(ecb, gridPosition, tileID, chu
 ```
 
 ### Chunk Management
+
 The `ChunkManagementSystem` automatically:
+
 - Creates chunks as needed
 - Culls distant chunks based on view distance
 - Enables/disables chunk tiles for performance
@@ -126,6 +135,7 @@ The `ChunkManagementSystem` automatically:
 ## 🔧 Editor Integration
 
 ### Using the Tilemap Painter Window
+
 1. Open **Window → PaintDots → Tilemap Painter**
 2. Select tile ID to paint
 3. **Left Click** to paint tiles
@@ -133,6 +143,7 @@ The `ChunkManagementSystem` automatically:
 5. Use different brush modes for various patterns
 
 ### Custom Editor Tools
+
 ```csharp
 [MenuItem("Tools/Paint Rectangle")]
 static void PaintCustomRectangle()
@@ -149,12 +160,14 @@ static void PaintCustomRectangle()
 ## 🏗️ ECS Best Practices
 
 ### Performance Tips
+
 - Use EntityCommandBuffer for all entity operations
 - Batch operations when possible using `BatchPaint`
 - Enable Burst compilation for custom systems
 - Use `DynamicBuffer` instead of `NativeArray` for runtime data
 
 ### Code Guidelines
+
 - Always use `readonly struct` for components
 - Seal all new types and systems
 - Avoid hard-coded parameters - use config components
@@ -164,6 +177,7 @@ static void PaintCustomRectangle()
 ## 🚀 Advanced Usage
 
 ### Custom Noise Functions
+
 ```csharp
 // Custom noise brush with multiple octaves
 public static void PaintCustomNoise(EntityCommandBuffer ecb, int2 center, int radius, int tileID)
@@ -195,6 +209,7 @@ public static void PaintCustomNoise(EntityCommandBuffer ecb, int2 center, int ra
 ```
 
 ### Performance Monitoring
+
 - Use Unity Profiler to monitor system performance
 - Check chunk activation/deactivation frequency
 - Monitor GC allocations in serialization operations

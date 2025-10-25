@@ -1,0 +1,25 @@
+{
+    "name": "PaintDots.Editor",
+    "rootNamespace": "PaintDots.Editor",
+    "references": [
+        "Unity.Entities",
+        "Unity.Entities.Editor",
+        "Unity.Mathematics",
+        "Unity.Collections",
+        "PaintDots.Runtime",
+        "Unity.2D.Tilemap.Editor",
+        "Unity.2D.Tilemap.Extras",
+        "Unity.2D.Tilemap.Extras.Editor"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
